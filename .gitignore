@@ -1,0 +1,43 @@
+# Dependências
+node_modules/
+.pnpm-store/
+.npm/
+
+# Builds
+dist/
+build/
+out/
+.target/
+target/
+
+# Tauri
+src-tauri/target/
+
+# Banco local
+*.db
+*.sqlite
+*.sqlite3
+
+# Variáveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+.idea/
+
+# Temporários
+*.tmp
+*.temp

@@ -10,7 +10,6 @@ import {
   Keyboard, 
   Database, 
   ShieldCheck,
-  LogOut,
   User
 } from 'lucide-react';
 import { useUserStore } from '../../modules/users/userStore';
@@ -21,7 +20,6 @@ interface MenuItemConfig {
   id: ModuleType;
   label: string;
   icon: React.ElementType;
-  allowedRoles: string[];
 }
 
 interface AppLayoutProps {
@@ -31,69 +29,20 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-export function AppLayout({ activeModule, onNavigate, onRequestSwitchUser, children }: AppLayoutProps) {
+export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps) {
   const { currentUser } = useUserStore();
   const [showShortcuts, setShowShortcuts] = useState(false);
 
-  // Perfil do operador ativo (padrão CASHIER se não definido)
-  const currentRoleId = currentUser?.roleId?.toUpperCase() || 'CASHIER';
-
-  // Configuração mestre de permissões por módulo
-  const allMenuItems: MenuItemConfig[] = [
-    { 
-      id: 'POS', 
-      label: 'PDV (Caixa)', 
-      icon: ShoppingCart, 
-      allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER', 'CAIXA', 'GERENTE'] 
-    },
-    { 
-      id: 'PRODUCTS', 
-      label: 'Produtos & Estoque', 
-      icon: Boxes, 
-      allowedRoles: ['ADMIN', 'MANAGER', 'STOCKIST', 'GERENTE', 'ESTOQUISTA'] 
-    },
-    { 
-      id: 'CASH', 
-      label: 'Movimento de Caixa', 
-      icon: ArrowLeftRight, 
-      allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER', 'CAIXA', 'GERENTE'] 
-    },
-    { 
-      id: 'PURCHASES', 
-      label: 'Compras & Entradas', 
-      icon: Truck, 
-      allowedRoles: ['ADMIN', 'MANAGER', 'STOCKIST', 'GERENTE', 'ESTOQUISTA'] 
-    },
-    { 
-      id: 'CUSTOMERS', 
-      label: 'Clientes', 
-      icon: Users, 
-      allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER', 'CAIXA', 'GERENTE'] 
-    },
-    { 
-      id: 'REPORTS', 
-      label: 'Relatórios', 
-      icon: BarChart3, 
-      allowedRoles: ['ADMIN', 'MANAGER', 'GERENTE'] 
-    },
-    { 
-      id: 'USERS', 
-      label: 'Usuários & Segurança', 
-      icon: ShieldCheck, 
-      allowedRoles: ['ADMIN'] 
-    },
-    { 
-      id: 'SETTINGS', 
-      label: 'Configurações & Backup', 
-      icon: Settings, 
-      allowedRoles: ['ADMIN'] 
-    },
+  // Todas as abas liberadas para o Administrador
+  const menuItems: MenuItemConfig[] = [
+    { id: 'POS', label: 'PDV (Caixa)', icon: ShoppingCart },
+    { id: 'PRODUCTS', label: 'Produtos & Estoque', icon: Boxes },
+    { id: 'CASH', label: 'Movimento de Caixa', icon: ArrowLeftRight },
+    { id: 'PURCHASES', label: 'Compras & Entradas', icon: Truck },
+    { id: 'CUSTOMERS', label: 'Clientes', icon: Users },
+    { id: 'REPORTS', label: 'Relatórios & Fechamentos', icon: BarChart3 },
+    { id: 'SETTINGS', label: 'Configurações & Backup', icon: Settings },
   ];
-
-  // FILTRAGEM: Somente exibe abas que o perfil do usuário tem autorização para acessar
-  const visibleMenuItems = allMenuItems.filter(item =>
-    currentRoleId === 'ADMIN' || item.allowedRoles.includes(currentRoleId)
-  );
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-textMain overflow-hidden select-none font-sans">
@@ -115,35 +64,30 @@ export function AppLayout({ activeModule, onNavigate, onRequestSwitchUser, child
             className="flex items-center space-x-1.5 text-xs bg-white/10 hover:bg-white/20 text-white px-2.5 py-1 rounded border border-white/20 transition-colors"
           >
             <Keyboard className="w-3.5 h-3.5 text-highlight" />
-            <span>Atalhos (F1-F7)</span>
+            <span>Atalhos (F1-F8)</span>
           </button>
 
-          {/* IDENTIFICAÇÃO DO OPERADOR + BOTÃO TROCAR USUÁRIO */}
-          <button
-            onClick={onRequestSwitchUser}
-            className="flex items-center space-x-2.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg border border-white/20 transition-all text-left group"
-            title="Clique para trocar de usuário"
-          >
+          {/* IDENTIFICAÇÃO DO ADMINISTRADOR */}
+          <div className="flex items-center space-x-2.5 bg-white/10 px-3 py-1.5 rounded-lg border border-white/20">
             <div className="w-7 h-7 rounded-md bg-white/20 flex items-center justify-center">
               <User className="w-4 h-4 text-highlight" />
             </div>
             <div className="text-right text-xs">
-              <p className="font-semibold leading-tight">{currentUser ? currentUser.name : 'Operador'}</p>
+              <p className="font-semibold leading-tight">{currentUser?.name || 'Administrador'}</p>
               <span className="text-[10px] text-emerald-300 font-mono font-bold block">
-                {currentUser?.roleName || 'Caixa'} • Trocar
+                Acesso Total (Admin)
               </span>
             </div>
-            <LogOut className="w-3.5 h-3.5 text-white/70 group-hover:text-white ml-1 transition-colors" />
-          </button>
+          </div>
         </div>
       </header>
 
-      {/* CORPO PRINCIPAL COM SIDEBAR FILTRADA + CONTEÚDO */}
+      {/* CORPO PRINCIPAL */}
       <div className="flex-1 flex overflow-hidden">
         {/* BARRA LATERAL */}
         <aside className="w-56 bg-surface border-r border-slate-200 flex flex-col justify-between p-3 shrink-0">
           <nav className="space-y-1">
-            {visibleMenuItems.map((item) => {
+            {menuItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeModule === item.id;
               return (
@@ -163,22 +107,12 @@ export function AppLayout({ activeModule, onNavigate, onRequestSwitchUser, child
             })}
           </nav>
 
-          {/* RODAPÉ DA BARRA LATERAL */}
-          <div className="space-y-2 pt-2 border-t border-slate-200">
-            <button
-              onClick={onRequestSwitchUser}
-              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 p-2 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 border border-slate-200 transition-colors"
-            >
-              <LogOut className="w-3.5 h-3.5 text-primary" />
-              <span>Trocar Operador</span>
-            </button>
-
-            <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-textMuted flex items-center space-x-2">
-              <Database className="w-3.5 h-3.5 text-primary shrink-0" />
-              <div className="truncate">
-                <p className="font-bold text-slate-700 leading-tight">Base Local</p>
-                <p className="text-[10px]">mercado.db (Offline)</p>
-              </div>
+          {/* STATUS DO BANCO LOCAL */}
+          <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-textMuted flex items-center space-x-2">
+            <Database className="w-3.5 h-3.5 text-primary shrink-0" />
+            <div className="truncate">
+              <p className="font-bold text-slate-700 leading-tight">Base Local</p>
+              <p className="text-[10px]">mercado.db (Offline)</p>
             </div>
           </div>
         </aside>
@@ -191,20 +125,67 @@ export function AppLayout({ activeModule, onNavigate, onRequestSwitchUser, child
 
       {/* MODAL DE ATALHOS */}
       {showShortcuts && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-surface w-full max-w-md rounded-xl shadow-2xl border border-slate-200 p-6">
-            <div className="flex justify-between items-center border-b border-slate-200 pb-3 mb-4">
-              <h3 className="font-bold text-base text-textMain">Central de Atalhos de Teclado</h3>
-              <button onClick={() => setShowShortcuts(false)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center space-x-2">
+                <Keyboard className="w-5 h-5 text-primary" />
+                <h3 className="font-bold text-sm text-textMain">Central de Atalhos de Teclado</h3>
+              </div>
+              <button
+                onClick={() => setShowShortcuts(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 rounded-lg"
+              >
+                ✕
+              </button>
             </div>
-            <div className="space-y-2 text-xs font-mono">
-              <div className="flex justify-between p-2 bg-slate-50 rounded"><span>[F1 / F2]</span><span className="font-sans font-semibold">Finalizar e Receber Venda</span></div>
-              <div className="flex justify-between p-2 bg-slate-50 rounded"><span>[F3]</span><span className="font-sans font-semibold">Buscar Produto por Nome / Código</span></div>
-              <div className="flex justify-between p-2 bg-slate-50 rounded"><span>[F4]</span><span className="font-sans font-semibold">Identificar Cliente</span></div>
-              <div className="flex justify-between p-2 bg-slate-50 rounded"><span>[F5]</span><span className="font-sans font-semibold">Aplicar Desconto Geral</span></div>
-              <div className="flex justify-between p-2 bg-slate-50 rounded"><span>[F6]</span><span className="font-sans font-semibold">Cancelar Item Selecionado</span></div>
-              <div className="flex justify-between p-2 bg-slate-50 rounded"><span>[F7]</span><span className="font-sans font-semibold">Suspender / Retomar Venda</span></div>
-              <div className="flex justify-between p-2 bg-slate-50 rounded"><span>[ESC]</span><span className="font-sans font-semibold">Cancelar / Fechar Modal</span></div>
+
+            <div className="p-4 space-y-2 max-h-[70vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="font-mono text-xs font-bold text-primary bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">[F1 / F2]</span>
+                <span className="text-xs font-semibold text-slate-700">Finalizar e Receber Venda</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="font-mono text-xs font-bold text-primary bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">[F3]</span>
+                <span className="text-xs font-semibold text-slate-700">Buscar Produto por Nome / Código</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="font-mono text-xs font-bold text-primary bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">[F4]</span>
+                <span className="text-xs font-semibold text-slate-700">Identificar Cliente</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="font-mono text-xs font-bold text-primary bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">[F5]</span>
+                <span className="text-xs font-semibold text-slate-700">Aplicar Desconto Geral</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="font-mono text-xs font-bold text-primary bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">[F6 / DEL]</span>
+                <span className="text-xs font-semibold text-slate-700">Cancelar Item Selecionado</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="font-mono text-xs font-bold text-primary bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">[F7]</span>
+                <span className="text-xs font-semibold text-slate-700">Suspender / Retomar Venda</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-emerald-50/50 rounded-xl border border-emerald-200">
+                <span className="font-mono text-xs font-bold text-primary bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md">[F8]</span>
+                <span className="text-xs font-bold text-primary">Abrir Gaveta de Dinheiro</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="font-mono text-xs font-bold text-slate-800 bg-slate-200 px-2 py-0.5 rounded-md">[1 + ENTER]</span>
+                <span className="text-xs font-semibold text-slate-700">Preço Livre / Varejo Diversos</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="font-mono text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">[ESC]</span>
+                <span className="text-xs font-semibold text-slate-700">Cancelar / Fechar Modal</span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                onClick={() => setShowShortcuts(false)}
+                className="bg-primary hover:bg-primary-hover text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all shadow"
+              >
+                Entendido [ESC]
+              </button>
             </div>
           </div>
         </div>

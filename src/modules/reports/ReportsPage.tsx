@@ -1,16 +1,18 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  BarChart3, 
   DollarSign, 
   Boxes, 
-  ArrowLeftRight, 
-  Printer, 
-  PieChart,
-  Tag
+  RotateCcw, 
+  Printer,
+  CalendarDays,
+  TrendingUp,
+  Calendar
 } from 'lucide-react';
-import { ReportPeriod } from './types';
-import { loadClosedCashSessionsDb, loadSalesDb } from '../../core/database/db';
-import { useProductStore } from '../products/productStore';
+import { loadClosedCashSessionsDb, loadSalesDb, loadProductsFromDb } from '../../core/database/db';
+import { Product } from '../products/types';
+import { CashClosingSummary } from '../cash/types';
+
+const MONTH_ABBR = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -19,277 +21,456 @@ const formatBRL = (cents: number) => {
   });
 };
 
+const parseDateSafe = (dStr: any): Date => {
+  if (!dStr) return new Date();
+  if (dStr instanceof Date) return dStr;
+  try {
+    const str = String(dStr).trim();
+    if (str.includes('/')) {
+      const [datePart, timePart] = str.split(/[, ]+/);
+      const [d, m, y] = datePart.split('/').map(Number);
+      let hour = 0, min = 0, sec = 0;
+      if (timePart && timePart.includes(':')) {
+        [hour, min, sec] = timePart.split(':').map(Number);
+      }
+      return new Date(y, (m || 1) - 1, d || 1, hour || 0, min || 0, sec || 0);
+    }
+    const parsed = new Date(str);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+  } catch {
+    return new Date();
+  }
+};
+
 export function ReportsPage() {
-  const [activeTab, setActiveTab] = useState<'SALES' | 'PRODUCTS' | 'CASH'>('SALES');
-  const [period, setPeriod] = useState<ReportPeriod>('TODAY');
+  const [closedSessions, setClosedSessions] = useState<CashClosingSummary[]>([]);
   const [salesList, setSalesList] = useState<any[]>([]);
-  const [cashSessionsHistory, setCashSessionsHistory] = useState<any[]>([]);
-  const { products } = useProductStore();
+  const [productsList, setProductsList] = useState<Product[]>([]);
+  const [activeTab, setActiveTab] = useState<'CASH_CLOSINGS' | 'SALES' | 'INVENTORY'>('CASH_CLOSINGS');
+  
+  // Filtros de Ano e Mês em Abas
+  const [selectedYear, setSelectedYear] = useState<string>('ALL');
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
 
   useEffect(() => {
     async function loadData() {
-      const sales = await loadSalesDb();
-      setSalesList(sales);
-      const sessions = await loadClosedCashSessionsDb();
-      setCashSessionsHistory(sessions);
+      try {
+        const [sessionsData, salesData, prodsData] = await Promise.all([
+          loadClosedCashSessionsDb().catch(() => []),
+          loadSalesDb().catch(() => []),
+          loadProductsFromDb().catch(() => [])
+        ]);
+        setClosedSessions(sessionsData || []);
+        setSalesList(salesData || []);
+        setProductsList(prodsData || []);
+
+        if (sessionsData && sessionsData.length > 0) {
+          const firstDate = parseDateSafe(sessionsData[0].closedAt || sessionsData[0].openedAt);
+          setSelectedYear(String(firstDate.getFullYear()));
+        }
+      } catch (err) {
+        console.error('Erro ao carregar dados do relatório:', err);
+      }
     }
     loadData();
-  }, [activeTab]);
+  }, []);
 
-  const salesSummary = useMemo(() => {
-    let grossCents = 0;
-    let discountCents = 0;
-    let netCents = 0;
-
-    let byMethodMap: Record<string, { amount: number; count: number }> = {
-      CASH: { amount: 0, count: 0 },
-      PIX: { amount: 0, count: 0 },
-      DEBIT: { amount: 0, count: 0 },
-      CREDIT: { amount: 0, count: 0 },
-    };
-
-    salesList.forEach(s => {
-      grossCents += s.subtotal_cents || 0;
-      discountCents += s.discount_cents || 0;
-      netCents += s.total_cents || 0;
-
-      const m = s.payment_method || 'CASH';
-      if (!byMethodMap[m]) byMethodMap[m] = { amount: 0, count: 0 };
-      byMethodMap[m].amount += s.total_cents || 0;
-      byMethodMap[m].count += 1;
+  // 1. LISTA DE ANOS DISPONÍVEIS
+  const availableYears = useMemo(() => {
+    const yearMap: { [year: string]: { year: string; count: number; totalCents: number } } = {};
+    
+    closedSessions.forEach(s => {
+      const d = parseDateSafe(s.closedAt || s.openedAt);
+      const y = String(d.getFullYear());
+      if (!yearMap[y]) {
+        yearMap[y] = { year: y, count: 0, totalCents: 0 };
+      }
+      yearMap[y].count += 1;
+      yearMap[y].totalCents += (s.salesCashCents || 0);
     });
 
-    const salesCount = salesList.length;
-    const avgTicket = salesCount > 0 ? Math.round(netCents / salesCount) : 0;
-    const estimatedCost = Math.round(netCents * 0.65);
-    const estimatedProfit = netCents - estimatedCost;
+    return Object.values(yearMap).sort((a, b) => Number(b.year) - Number(a.year));
+  }, [closedSessions]);
 
-    const byPaymentMethod = Object.entries(byMethodMap).map(([k, v]) => ({
-      method: k === 'CASH' ? 'Dinheiro' : k === 'PIX' ? 'PIX' : k === 'DEBIT' ? 'Débito' : 'Crédito',
-      amountCents: v.amount,
-      count: v.count,
-      percentage: netCents > 0 ? Math.round((v.amount / netCents) * 100) : 0
-    }));
+  // 2. LISTA DE MESES DISPONÍVEIS COM SIGLAS ABREVIADAS (JAN, FEV, MAR...)
+  const availableMonths = useMemo(() => {
+    const monthMap: { [key: string]: { key: string; monthNum: number; label: string; count: number; totalCents: number } } = {};
+
+    closedSessions.forEach(s => {
+      const d = parseDateSafe(s.closedAt || s.openedAt);
+      const y = String(d.getFullYear());
+      const mIdx = d.getMonth();
+      const mNum = mIdx + 1;
+      const mKey = selectedYear === 'ALL' ? `${y}-${String(mNum).padStart(2, '0')}` : String(mNum).padStart(2, '0');
+      
+      const abbr = MONTH_ABBR[mIdx] || `MÊS ${mNum}`;
+      const label = selectedYear === 'ALL' ? `${abbr}/${y}` : abbr;
+
+      if (selectedYear === 'ALL' || y === selectedYear) {
+        if (!monthMap[mKey]) {
+          monthMap[mKey] = {
+            key: mKey,
+            monthNum: mNum,
+            label,
+            count: 0,
+            totalCents: 0
+          };
+        }
+        monthMap[mKey].count += 1;
+        monthMap[mKey].totalCents += (s.salesCashCents || 0);
+      }
+    });
+
+    return Object.values(monthMap).sort((a, b) => {
+      if (selectedYear === 'ALL') return b.key.localeCompare(a.key);
+      return a.monthNum - b.monthNum;
+    });
+  }, [closedSessions, selectedYear]);
+
+  // AO TROCAR O ANO, VOLTA PARA 'TODOS OS MESES' DO ANO SELECIONADO
+  const handleSelectYear = (year: string) => {
+    setSelectedYear(year);
+    setSelectedMonth('ALL');
+  };
+
+  // 3. SESSÕES FILTRADAS PELO ANO E MÊS ATIVOS
+  const filteredSessions = useMemo(() => {
+    return closedSessions.filter(s => {
+      const d = parseDateSafe(s.closedAt || s.openedAt);
+      const y = String(d.getFullYear());
+      const mNum = String(d.getMonth() + 1).padStart(2, '0');
+      const y_m = `${y}-${mNum}`;
+
+      if (selectedYear !== 'ALL' && y !== selectedYear) return false;
+      if (selectedMonth !== 'ALL') {
+        if (selectedYear === 'ALL') {
+          if (y_m !== selectedMonth) return false;
+        } else {
+          if (mNum !== selectedMonth) return false;
+        }
+      }
+      return true;
+    });
+  }, [closedSessions, selectedYear, selectedMonth]);
+
+  // 4. TOTAL E MÉDIA DIÁRIA DOS DIAS COM VENDA
+  const { selectedTotalCents, selectedDailyAvgCents, activeDaysCount } = useMemo(() => {
+    const total = filteredSessions.reduce((acc, s) => acc + (s.salesCashCents || 0), 0);
+    
+    const uniqueDays = new Set<string>();
+    filteredSessions.forEach(s => {
+      const d = parseDateSafe(s.closedAt || s.openedAt);
+      const dayKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      uniqueDays.add(dayKey);
+    });
+
+    const daysCount = Math.max(1, uniqueDays.size);
+    const dailyAvg = Math.round(total / daysCount);
 
     return {
-      grossCents,
-      discountCents,
-      netCents,
-      salesCount,
-      avgTicket,
-      estimatedProfit,
-      byPaymentMethod,
+      selectedTotalCents: total,
+      selectedDailyAvgCents: dailyAvg,
+      activeDaysCount: uniqueDays.size
     };
-  }, [salesList]);
+  }, [filteredSessions]);
 
   return (
     <div className="h-full flex flex-col space-y-4">
-      {/* HEADER DO MÓDULO */}
-      <div className="bg-surface p-3 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between shrink-0">
+      {/* BARRA SUPERIOR DE MÓDULOS */}
+      <div className="bg-surface p-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setActiveTab('SALES')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
-              activeTab === 'SALES' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
+              activeTab === 'SALES' 
+                ? 'bg-primary text-white shadow-sm' 
+                : 'text-slate-700 hover:bg-slate-100'
             }`}
           >
             <DollarSign className="w-3.5 h-3.5" />
             <span>Desempenho de Vendas ({salesList.length})</span>
           </button>
+
           <button
-            onClick={() => setActiveTab('PRODUCTS')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
-              activeTab === 'PRODUCTS' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            onClick={() => setActiveTab('INVENTORY')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
+              activeTab === 'INVENTORY' 
+                ? 'bg-primary text-white shadow-sm' 
+                : 'text-slate-700 hover:bg-slate-100'
             }`}
           >
             <Boxes className="w-3.5 h-3.5" />
-            <span>Estoque & Produtos ({products.length})</span>
+            <span>Estoque & Produtos ({productsList.length})</span>
           </button>
+
           <button
-            onClick={() => setActiveTab('CASH')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
-              activeTab === 'CASH' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            onClick={() => setActiveTab('CASH_CLOSINGS')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
+              activeTab === 'CASH_CLOSINGS' 
+                ? 'bg-primary text-white shadow-sm' 
+                : 'text-slate-700 hover:bg-slate-100'
             }`}
           >
-            <ArrowLeftRight className="w-3.5 h-3.5" />
-            <span>Fechamentos de Caixa ({cashSessionsHistory.length})</span>
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Fechamentos de Caixa ({closedSessions.length})</span>
           </button>
         </div>
 
         <button
           onClick={() => window.print()}
-          className="p-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center space-x-1"
-          title="Imprimir Relatório"
+          className="p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg shadow transition-colors"
+          title="Imprimir"
         >
-          <Printer className="w-3.5 h-3.5" />
+          <Printer className="w-4 h-4" />
         </button>
       </div>
 
-      {/* ABA 1: VENDAS REAIS */}
-      {activeTab === 'SALES' && (
-        <div className="flex-1 flex flex-col space-y-4 overflow-y-auto">
-          <div className="grid grid-cols-4 gap-3 shrink-0">
-            <div className="bg-surface p-4 rounded-xl border border-slate-200 shadow-sm">
-              <span className="text-[10px] font-bold text-textMuted uppercase">Faturamento Líquido Real</span>
-              <p className="text-2xl font-mono font-bold text-primary mt-0.5">{formatBRL(salesSummary.netCents)}</p>
-              <p className="text-[11px] text-textMuted mt-1">Bruto: {formatBRL(salesSummary.grossCents)}</p>
-            </div>
+      {/* ABA: FECHAMENTOS DE CAIXA */}
+      {activeTab === 'CASH_CLOSINGS' && (
+        <div className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col p-5">
+          {/* CABEÇALHO COM TÍTULO, MÉDIA E TOTAL */}
+          <div className="flex flex-col space-y-3 pb-3 border-b border-slate-200 mb-3">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                HISTÓRICO REAL DE FECHAMENTOS
+              </h2>
+              
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 border border-slate-200 px-3 py-1 rounded-lg flex items-center space-x-1.5">
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Média Diária:</span>
+                  <strong className="text-emerald-700">{formatBRL(selectedDailyAvgCents)} / dia</strong>
+                  <span className="text-[10px] text-slate-500 font-sans font-semibold">({activeDaysCount} {activeDaysCount === 1 ? 'dia' : 'dias'})</span>
+                </span>
 
-            <div className="bg-surface p-4 rounded-xl border border-slate-200 shadow-sm">
-              <span className="text-[10px] font-bold text-textMuted uppercase">Lucro Estimado</span>
-              <p className="text-2xl font-mono font-bold text-emerald-700 mt-0.5">{formatBRL(salesSummary.estimatedProfit)}</p>
-              <p className="text-[11px] text-emerald-800 mt-1 font-semibold">Margem média: ~35%</p>
-            </div>
-
-            <div className="bg-surface p-4 rounded-xl border border-slate-200 shadow-sm">
-              <span className="text-[10px] font-bold text-textMuted uppercase">Cupons Emitidos</span>
-              <p className="text-2xl font-mono font-bold text-textMain mt-0.5">{salesSummary.salesCount} vendas</p>
-              <p className="text-[11px] text-textMuted mt-1">Total de atendimentos</p>
-            </div>
-
-            <div className="bg-surface p-4 rounded-xl border border-slate-200 shadow-sm">
-              <span className="text-[10px] font-bold text-textMuted uppercase">Ticket Médio</span>
-              <p className="text-2xl font-mono font-bold text-slate-800 mt-0.5">{formatBRL(salesSummary.avgTicket)}</p>
-              <p className="text-[11px] text-textMuted mt-1">Média por cliente</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-12 gap-4 flex-1">
-            <div className="col-span-6 bg-surface rounded-xl border border-slate-200 p-4 shadow-sm">
-              <span className="text-xs font-bold text-textMain uppercase tracking-wider flex items-center space-x-1.5">
-                <PieChart className="w-4 h-4 text-primary" />
-                <span>Vendas por Meio de Pagamento</span>
-              </span>
-
-              <div className="space-y-3 mt-4">
-                {salesSummary.byPaymentMethod.map(pm => (
-                  <div key={pm.method} className="space-y-1">
-                    <div className="flex justify-between text-xs font-medium">
-                      <span className="text-slate-700">{pm.method} ({pm.count}x)</span>
-                      <span className="font-mono font-bold">{formatBRL(pm.amountCents)} ({pm.percentage}%)</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${pm.percentage}%` }} />
-                    </div>
-                  </div>
-                ))}
+                <span className="text-xs font-mono font-bold text-primary bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-lg">
+                  Total do Período: {formatBRL(selectedTotalCents)}
+                </span>
               </div>
             </div>
 
-            <div className="col-span-6 bg-surface rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col">
-              <span className="text-xs font-bold text-textMain uppercase tracking-wider flex items-center space-x-1.5 mb-3">
-                <Tag className="w-4 h-4 text-primary" />
-                <span>Últimas Vendas Registradas</span>
-              </span>
-              <div className="flex-1 overflow-y-auto max-h-56 divide-y divide-slate-100 font-mono text-xs">
-                {salesList.length === 0 ? (
-                  <p className="text-center text-textMuted py-8">Nenhuma venda realizada.</p>
-                ) : (
-                  salesList.slice(0, 10).map(s => (
-                    <div key={s.id} className="py-2 flex justify-between">
-                      <div>
-                        <span className="font-bold text-slate-800">{s.id}</span>
-                        <span className="text-textMuted text-[10px] block">{s.created_at} • {s.customer_name}</span>
-                      </div>
-                      <span className="font-bold text-primary">{formatBRL(s.total_cents)}</span>
-                    </div>
-                  ))
-                )}
-              </div>
+            {/* NÍVEL 1: ABAS DE ANOS */}
+            <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200 w-fit">
+              <button
+                onClick={() => handleSelectYear('ALL')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                  selectedYear === 'ALL'
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Todos os Anos</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${selectedYear === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                  {closedSessions.length}
+                </span>
+              </button>
+
+              {availableYears.map((y) => (
+                <button
+                  key={y.year}
+                  onClick={() => handleSelectYear(y.year)}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                    selectedYear === y.year
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <span>{y.year}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${selectedYear === y.year ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                    {y.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* NÍVEL 2: ABAS DE MESES ABREVIADOS (JAN, FEV, MAR...) */}
+            <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5">
+              <button
+                onClick={() => setSelectedMonth('ALL')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center space-x-1.5 border ${
+                  selectedMonth === 'ALL'
+                    ? 'bg-emerald-700 text-white border-emerald-700 shadow-sm'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <span>{selectedYear === 'ALL' ? 'Todos os Meses' : `Ano de ${selectedYear}`}</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${selectedMonth === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                  {filteredSessions.length}
+                </span>
+              </button>
+
+              {availableMonths.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setSelectedMonth(m.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center space-x-1.5 border ${
+                    selectedMonth === m.key
+                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-sm'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <CalendarDays className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="tracking-wide">{m.label}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${selectedMonth === m.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                    {m.count}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ABA 2: PRODUTOS */}
-      {activeTab === 'PRODUCTS' && (
-        <div className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div className="p-3 bg-slate-50 border-b border-slate-200">
-            <span className="text-xs font-bold text-textMain uppercase tracking-wider">Estoque Real em Banco de Dados</span>
-          </div>
+          {/* TABELA DE FECHAMENTOS */}
           <div className="overflow-y-auto flex-1">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-100 text-textMuted uppercase text-[10px] sticky top-0 border-b border-slate-200">
+              <thead className="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-100 sticky top-0 bg-surface">
                 <tr>
-                  <th className="px-4 py-3">Cód.</th>
-                  <th className="px-4 py-3">Produto</th>
-                  <th className="px-4 py-3 text-center">Estoque Atual</th>
-                  <th className="px-4 py-3 text-right">Custo</th>
-                  <th className="px-4 py-3 text-right">Venda</th>
+                  <th className="py-2.5 px-2">SESSÃO</th>
+                  <th className="py-2.5 px-2">OPERADOR</th>
+                  <th className="py-2.5 px-2">ABERTURA / FECHAMENTO</th>
+                  <th className="py-2.5 px-2 text-right">FUNDO INICIAL</th>
+                  <th className="py-2.5 px-2 text-right">VENDAS DINHEIRO</th>
+                  <th className="py-2.5 px-2 text-right">SANGRIA</th>
+                  <th className="py-2.5 px-2 text-right">DIFERENÇA (QUEBRA/SOBRA)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
-                {products.map(p => (
-                  <tr key={p.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-bold text-slate-700">{p.internalCode}</td>
-                    <td className="px-4 py-3 font-sans font-semibold text-textMain">{p.name}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                        p.currentStock <= p.minStock ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                      }`}>
-                        {p.currentStock} {p.unitMeasure}
-                      </span>
+                {filteredSessions.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-12 text-slate-400 font-sans text-xs">
+                      Nenhum fechamento registrado para este período.
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-500">{formatBRL(p.costPriceCents)}</td>
-                    <td className="px-4 py-3 text-right font-bold text-primary">{formatBRL(p.retailPriceCents)}</td>
                   </tr>
-                ))}
+                ) : (
+                  filteredSessions.map((s) => {
+                    const isExact = s.differenceCents === 0;
+                    const isShortage = s.differenceCents < 0;
+
+                    return (
+                      <tr key={s.sessionId} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-2 font-bold text-slate-800">{s.sessionId}</td>
+                        <td className="py-3 px-2 font-sans font-medium text-slate-700">{s.userName}</td>
+                        <td className="py-3 px-2 text-slate-500 text-[11px]">
+                          {s.openedAt} <span className="text-slate-400">→</span> {s.closedAt}
+                        </td>
+                        <td className="py-3 px-2 text-right text-slate-700">
+                          {formatBRL(s.initialAmountCents)}
+                        </td>
+                        <td className="py-3 px-2 text-right font-bold text-primary">
+                          +{formatBRL(s.salesCashCents)}
+                        </td>
+                        <td className="py-3 px-2 text-right font-bold text-red-600">
+                          {s.withdrawsCents > 0 ? `-${formatBRL(s.withdrawsCents)}` : '-R$ 0,00'}
+                        </td>
+                        <td className="py-3 px-2 text-right font-sans">
+                          <span
+                            className={`px-3 py-1 rounded-full text-[11px] font-bold inline-block ${
+                              isExact
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : isShortage
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}
+                          >
+                            {isExact
+                              ? 'Exato (R$ 0,00)'
+                              : `${formatBRL(s.differenceCents)} (${isShortage ? 'Falta' : 'Sobra'})`}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* ABA 3: FECHAMENTOS REAIS DE CAIXA */}
-      {activeTab === 'CASH' && (
-        <div className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-          <div className="p-3 bg-slate-50 border-b border-slate-200">
-            <span className="text-xs font-bold text-textMain uppercase tracking-wider">Histórico Real de Fechamentos</span>
-          </div>
+      {/* ABA: DESEMPENHO DE VENDAS */}
+      {activeTab === 'SALES' && (
+        <div className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col p-5">
+          <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">
+            VENDAS CONCLUÍDAS
+          </h2>
 
           <div className="overflow-y-auto flex-1">
-            <table className="w-full text-left text-xs border-collapse font-mono">
-              <thead className="bg-slate-100 text-textMuted uppercase text-[10px] sticky top-0 border-b border-slate-200">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-100 sticky top-0 bg-surface">
                 <tr>
-                  <th className="px-4 py-3">Sessão</th>
-                  <th className="px-4 py-3 font-sans">Operador</th>
-                  <th className="px-4 py-3">Abertura / Fechamento</th>
-                  <th className="px-4 py-3 text-right">Fundo Inicial</th>
-                  <th className="px-4 py-3 text-right">Vendas Dinheiro</th>
-                  <th className="px-4 py-3 text-right">Sangrias</th>
-                  <th className="px-4 py-3 text-center">Diferença (Quebra/Sobra)</th>
+                  <th className="py-2.5 px-2">CUPOM</th>
+                  <th className="py-2.5 px-2">DATA / HORA</th>
+                  <th className="py-2.5 px-2">CLIENTE</th>
+                  <th className="py-2.5 px-2">PAGAMENTO</th>
+                  <th className="py-2.5 px-2 text-right">SUBTOTAL</th>
+                  <th className="py-2.5 px-2 text-right">DESCONTO</th>
+                  <th className="py-2.5 px-2 text-right">TOTAL PAGO</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {cashSessionsHistory.length === 0 ? (
+              <tbody className="divide-y divide-slate-100 font-mono">
+                {salesList.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-12 text-textMuted font-sans">
-                      Nenhum fechamento registrado no banco de dados.
+                    <td colSpan={7} className="text-center py-12 text-slate-400 font-sans text-xs">
+                      Nenhuma venda registrada.
                     </td>
                   </tr>
                 ) : (
-                  cashSessionsHistory.map(cs => (
-                    <tr key={cs.sessionId} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-bold text-slate-700">{cs.sessionId}</td>
-                      <td className="px-4 py-3 font-sans text-slate-800 font-medium">{cs.userName}</td>
-                      <td className="px-4 py-3 text-textMuted text-[11px]">
-                        {cs.openedAt} → {cs.closedAt}
+                  salesList.map((s) => (
+                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-2 font-bold text-slate-800">#{s.id}</td>
+                      <td className="py-3 px-2 text-slate-500 text-[11px]">{s.created_at}</td>
+                      <td className="py-3 px-2 font-sans font-medium text-slate-700">
+                        {s.customer_name || 'CONSUMIDOR'}
                       </td>
-                      <td className="px-4 py-3 text-right">{formatBRL(cs.initialAmountCents)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-primary">+{formatBRL(cs.salesCashCents)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-danger">-{formatBRL(cs.withdrawsCents)}</td>
-                      <td className="px-4 py-3 text-center font-sans">
-                        <span className={`px-2 py-0.5 rounded font-bold text-[11px] ${
-                          cs.differenceCents === 0 ? 'bg-emerald-100 text-emerald-800' :
-                          cs.differenceCents > 0 ? 'bg-blue-100 text-blue-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {cs.differenceCents === 0 ? 'Exato (R$ 0,00)' : cs.differenceCents > 0 ? `+${formatBRL(cs.differenceCents)} (Sobra)` : `${formatBRL(cs.differenceCents)} (Falta)`}
-                        </span>
+                      <td className="py-3 px-2 font-sans font-bold text-primary text-[11px]">
+                        {s.payment_method}
+                      </td>
+                      <td className="py-3 px-2 text-right text-slate-600">{formatBRL(s.subtotal_cents)}</td>
+                      <td className="py-3 px-2 text-right font-bold text-red-600">
+                        {s.discount_cents > 0 ? `-${formatBRL(s.discount_cents)}` : 'R$ 0,00'}
+                      </td>
+                      <td className="py-3 px-2 text-right font-black text-primary text-sm">
+                        {formatBRL(s.total_cents)}
                       </td>
                     </tr>
                   ))
                 )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ABA: ESTOQUE & PRODUTOS */}
+      {activeTab === 'INVENTORY' && (
+        <div className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col p-5">
+          <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">
+            CATÁLOGO DE PRODUTOS & ESTOQUE
+          </h2>
+
+          <div className="overflow-y-auto flex-1">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-100 sticky top-0 bg-surface">
+                <tr>
+                  <th className="py-2.5 px-2">CÓDIGO</th>
+                  <th className="py-2.5 px-2">DESCRIÇÃO DO ITEM</th>
+                  <th className="py-2.5 px-2 text-center">UNIDADE</th>
+                  <th className="py-2.5 px-2 text-center">ESTOQUE ATUAL</th>
+                  <th className="py-2.5 px-2 text-right">PREÇO DE CUSTO</th>
+                  <th className="py-2.5 px-2 text-right">PREÇO DE VENDA</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-mono">
+                {productsList.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-3 px-2 font-bold text-slate-700">{p.internalCode}</td>
+                    <td className="py-3 px-2 font-sans font-medium text-slate-800">{p.name}</td>
+                    <td className="py-3 px-2 text-center">{p.unitMeasure}</td>
+                    <td className="py-3 px-2 text-center font-bold text-slate-900">{p.currentStock}</td>
+                    <td className="py-3 px-2 text-right text-slate-500">{formatBRL(p.costPriceCents)}</td>
+                    <td className="py-3 px-2 text-right font-black text-primary">{formatBRL(p.retailPriceCents)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
+import { open } from '@tauri-apps/plugin-shell';
+import { appLocalDataDir } from '@tauri-apps/api/path';
 import { 
   Settings, 
   Database, 
@@ -14,11 +16,18 @@ import {
   FileCheck,
   ShieldCheck,
   Clock,
-  Power
+  Power,
+  KeyRound,
+  Play,
+  FolderKanban,
+  FileUp,
+  Skull,
+  Trash2
 } from 'lucide-react';
 import { useSettingsStore } from './settingsStore';
 import { BackupRecord } from './types';
 import { RestoreConfirmModal } from './components/RestoreConfirmModal';
+import { getInstalledPrinters, testPrinter, triggerDrawer } from '../../core/hardware/printer';
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 Bytes';
@@ -36,19 +45,35 @@ export function SettingsPage() {
     lastBackupDate, 
     updateSettings, 
     createBackup, 
-    restoreBackup 
+    restoreBackup,
+    importBackup
   } = useSettingsStore();
 
-  const [activeTab, setActiveTab] = useState<'BACKUP' | 'STORE' | 'HARDWARE'>('BACKUP');
+  const [activeTab, setActiveTab] = useState<'BACKUP' | 'STORE' | 'HARDWARE'>('HARDWARE');
   const [formData, setFormData] = useState({ ...settings });
+  const [availablePrinters, setAvailablePrinters] = useState<string[]>([]);
   const [selectedBackup, setSelectedBackup] = useState<BackupRecord | null>(null);
   const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [autostartActive, setAutostartActive] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
 
-  // Verifica ao carregar a página se o autostart já está ativo no Windows/Linux
+  // Estado para o modal de zerar dados
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+
+  // Carrega autostart e lista de impressoras do Windows
   useEffect(() => {
     isEnabled().then(setAutostartActive).catch(() => {});
+    
+    getInstalledPrinters().then(printers => {
+      setAvailablePrinters(printers);
+      const savedPrinter = localStorage.getItem('mercado_selected_printer');
+      if (savedPrinter && printers.includes(savedPrinter)) {
+        setFormData(prev => ({ ...prev, printerName: savedPrinter }));
+      } else if (printers.length > 0 && !formData.printerName) {
+        setFormData(prev => ({ ...prev, printerName: printers[0] }));
+      }
+    });
   }, []);
 
   const showToast = (msg: string) => {
@@ -78,6 +103,45 @@ export function SettingsPage() {
     showToast('Configurações salvas com sucesso!');
   };
 
+  const handleSaveHardwareSettings = () => {
+    updateSettings(formData);
+    if (formData.printerName) {
+      localStorage.setItem('mercado_selected_printer', formData.printerName);
+    }
+    showToast('Configurações de periféricos salvas com sucesso!');
+  };
+
+  const handleTestPrint = async () => {
+    const printer = formData.printerName || availablePrinters[0];
+    if (!printer) {
+      alert('Nenhuma impressora disponível para teste.');
+      return;
+    }
+    setIsTesting(true);
+    try {
+      await testPrinter(printer);
+      showToast(`Cupom de teste enviado para "${printer}"!`);
+    } catch (err: any) {
+      alert(`Erro no teste de impressão: ${err.message || err}`);
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleTestDrawer = async () => {
+    const printer = formData.printerName || availablePrinters[0];
+    if (!printer) {
+      alert('Selecione a impressora conectada à gaveta.');
+      return;
+    }
+    try {
+      await triggerDrawer(printer);
+      showToast('Pulso elétrico de abertura enviado para a gaveta!');
+    } catch (err: any) {
+      alert(`Erro no teste da gaveta: ${err.message || err}`);
+    }
+  };
+
   const handleGenerateBackup = () => {
     const bkp = createBackup('MANUAL');
     showToast(`Backup atômico "${bkp.filename}" gerado com sucesso!`);
@@ -89,6 +153,32 @@ export function SettingsPage() {
     setIsRestoreModalOpen(false);
     setSelectedBackup(null);
     showToast('Base de dados restaurada com sucesso!');
+  };
+
+  const handleOpenBackupFolder = async () => {
+    try {
+      const dataDir = await appLocalDataDir();
+      await open(dataDir);
+    } catch (err) {
+      console.error("Erro ao abrir pasta de backups:", err);
+      alert("Não foi possível abrir a pasta de backups.");
+    }
+  };
+
+  const handleImportBackup = async () => {
+    try {
+      await importBackup();
+      showToast('Backup importado e adicionado à lista com sucesso!');
+    } catch (err: any) {
+      console.error("Erro ao importar backup:", err);
+      if (err.message !== 'Dialog closed') {
+        alert(`Falha na importação: ${err.message}`);
+      }
+    }
+  };
+
+  const handleOpenResetModal = () => {
+    setIsResetModalOpen(true);
   };
 
   return (
@@ -104,6 +194,16 @@ export function SettingsPage() {
       {/* HEADER DO MÓDULO */}
       <div className="bg-surface p-3 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setActiveTab('HARDWARE')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
+              activeTab === 'HARDWARE' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Periféricos (Impressora / Balança)</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('BACKUP')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
@@ -123,30 +223,154 @@ export function SettingsPage() {
             <Building2 className="w-3.5 h-3.5" />
             <span>Dados da Loja & Sistema</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab('HARDWARE')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
-              activeTab === 'HARDWARE' ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Periféricos (Balança / Impressora)</span>
-          </button>
         </div>
 
         {activeTab === 'BACKUP' && (
-          <button
-            onClick={handleGenerateBackup}
-            className="bg-primary hover:bg-primary-hover text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-colors"
-          >
-            <HardDriveDownload className="w-4 h-4" />
-            <span>Gerar Backup Agora</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleOpenBackupFolder}
+              className="bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-colors"
+            >
+              <FolderKanban className="w-4 h-4 text-amber-400" />
+              <span>Abrir Pasta</span>
+            </button>
+            <button
+              onClick={handleImportBackup}
+              className="bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-colors"
+            >
+              <FileUp className="w-4 h-4 text-emerald-400" />
+              <span>Importar Backup</span>
+            </button>
+            <button
+              onClick={handleGenerateBackup}
+              className="bg-primary hover:bg-primary-hover text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-colors"
+            >
+              <HardDriveDownload className="w-4 h-4" />
+              <span>Gerar Backup Agora</span>
+            </button>
+          </div>
         )}
       </div>
 
-      {/* ABA 1: BACKUP & INTEGRIDADE */}
+      {/* ABA 1: PERIFÉRICOS & HARDWARE */}
+      {activeTab === 'HARDWARE' && (
+        <div className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm p-6 overflow-y-auto space-y-6 max-w-2xl">
+          <div>
+            <h3 className="font-bold text-base text-textMain">Comunicação Serial & Impressão Direta</h3>
+            <p className="text-xs text-textMuted">Configuração de impressora térmica não fiscal, gaveta de dinheiro RJ11 e balanças de checkout.</p>
+          </div>
+
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-textMain uppercase flex items-center space-x-2">
+                <Printer className="w-4 h-4 text-primary" />
+                <span>Impressora Térmica de Cupom (ESC/POS)</span>
+              </span>
+              <span className="text-[11px] text-primary font-bold">
+                {availablePrinters.length} impressoras detectadas
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-textMuted uppercase mb-1">
+                Dispositivo de Impressão (Windows Spooler):
+              </label>
+              <select
+                value={formData.printerName || ''}
+                onChange={(e) => setFormData({ ...formData, printerName: e.target.value })}
+                className="w-full px-3.5 py-2.5 border-2 border-primary/40 rounded-xl text-xs font-bold bg-surface text-slate-800 focus:outline-none focus:border-primary"
+              >
+                {availablePrinters.length === 0 && (
+                  <option value="">Nenhuma impressora encontrada</option>
+                )}
+                {availablePrinters.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-textMuted uppercase mb-1">Largura da Bobina</label>
+              <select
+                value={formData.printerWidthMm}
+                onChange={(e) => setFormData({ ...formData, printerWidthMm: parseInt(e.target.value) })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-surface"
+              >
+                <option value="80">80mm (Padrão Varejo - EPSON, Bematech, Elgin, Daruma)</option>
+                <option value="58">58mm (Bobina Estreita)</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                disabled={isTesting}
+                onClick={handleTestPrint}
+                className="bg-slate-800 hover:bg-slate-900 disabled:bg-slate-400 text-white p-3 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition-all shadow"
+              >
+                <Printer className="w-4 h-4 text-emerald-400" />
+                <span>{isTesting ? 'Enviando Teste...' : 'Testar Impressão Térmica'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTestDrawer}
+                className="bg-slate-800 hover:bg-slate-900 text-white p-3 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition-all shadow"
+              >
+                <KeyRound className="w-4 h-4 text-amber-400" />
+                <span>Testar Abertura da Gaveta</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+            <div className="flex items-center space-x-2 text-xs font-bold text-textMain uppercase">
+              <Scale className="w-4 h-4 text-primary" />
+              <span>Balança de Checkout (Protocolo Toledo / Filizola)</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-textMuted uppercase mb-1">Porta COM</label>
+                <select
+                  value={formData.scalePort}
+                  onChange={(e) => setFormData({ ...formData, scalePort: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-surface"
+                >
+                  <option value="COM1">COM1</option>
+                  <option value="COM2">COM2</option>
+                  <option value="COM3">COM3 (Padrão USB-Serial)</option>
+                  <option value="COM4">COM4</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-textMuted uppercase mb-1">Baud Rate</label>
+                <select
+                  value={formData.scaleBaudRate}
+                  onChange={(e) => setFormData({ ...formData, scaleBaudRate: parseInt(e.target.value) })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-surface font-mono"
+                >
+                  <option value="4800">4800 bps</option>
+                  <option value="9600">9600 bps (Recomendado)</option>
+                  <option value="19200">19200 bps</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveHardwareSettings}
+            className="bg-primary hover:bg-primary-hover text-white px-6 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow"
+          >
+            <Save className="w-4 h-4" />
+            <span>Salvar Parâmetros de Hardware</span>
+          </button>
+        </div>
+      )}
+
+      {/* ABA 2: BACKUP & INTEGRIDADE */}
       {activeTab === 'BACKUP' && (
         <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
           <div className="grid grid-cols-3 gap-3 shrink-0">
@@ -239,179 +463,122 @@ export function SettingsPage() {
         </div>
       )}
 
-      {/* ABA 2: DADOS DA EMPRESA E SISTEMA */}
+      {/* ABA 3: DADOS DA EMPRESA E SISTEMA */}
       {activeTab === 'STORE' && (
-        <form onSubmit={handleSaveStoreSettings} className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm p-6 overflow-y-auto space-y-5 max-w-2xl">
-          <div>
-            <h3 className="font-bold text-base text-textMain">Identificação da Empresa & Cabeçalho de Cupom</h3>
-            <p className="text-xs text-textMuted">Esses dados serão impressos no cabeçalho e rodapé dos comprovantes térmicos.</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Razão Social</label>
-              <input
-                type="text"
-                value={formData.companyName}
-                onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-              />
-            </div>
+        <div className="flex-1 overflow-y-auto space-y-6 max-w-2xl">
+          <form onSubmit={handleSaveStoreSettings} className="bg-surface rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
             <div>
-              <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Nome Fantasia</label>
-              <input
-                type="text"
-                value={formData.tradeName}
-                onChange={(e) => setFormData({ ...formData, tradeName: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold text-primary"
-              />
+              <h3 className="font-bold text-base text-textMain">Identificação da Empresa & Cabeçalho de Cupom</h3>
+              <p className="text-xs text-textMuted">Esses dados serão impressos no cabeçalho e rodapé dos comprovantes térmicos.</p>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-textMuted uppercase mb-1">CNPJ</label>
-              <input
-                type="text"
-                value={formData.cnpj}
-                onChange={(e) => setFormData({ ...formData, cnpj: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono"
-              />
-            </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Telefone de Contato</label>
-              <input
-                type="text"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Endereço Completo</label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Mensagem de Rodapé do Cupom</label>
-            <input
-              type="text"
-              value={formData.receiptFooterMessage}
-              onChange={(e) => setFormData({ ...formData, receiptFooterMessage: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs"
-            />
-          </div>
-
-          {/* TOGGLE: INÍCIO AUTOMÁTICO COM O WINDOWS / LINUX */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-primary flex items-center justify-center">
-                <Power className="w-4 h-4" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Razão Social</label>
+                <input
+                  type="text"
+                  value={formData.companyName}
+                  onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                />
               </div>
               <div>
-                <p className="text-xs font-bold text-textMain">Iniciar automaticamente com o Sistema Operacional</p>
-                <p className="text-[11px] text-textMuted">Abre o Mercado POS em modo tela cheia assim que o computador ligar.</p>
+                <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Nome Fantasia</label>
+                <input
+                  type="text"
+                  value={formData.tradeName}
+                  onChange={(e) => setFormData({ ...formData, tradeName: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold text-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-textMuted uppercase mb-1">CNPJ</label>
+                <input
+                  type="text"
+                  value={formData.cnpj}
+                  onChange={(e) => setFormData({ ...formData, cnpj: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono"
+                />
               </div>
             </div>
-            <input
-              type="checkbox"
-              checked={autostartActive}
-              onChange={(e) => handleToggleAutostart(e.target.checked)}
-              className="w-5 h-5 text-primary rounded focus:ring-primary cursor-pointer accent-primary"
-            />
-          </div>
 
-          <div className="pt-2">
-            <button
-              type="submit"
-              className="bg-primary hover:bg-primary-hover text-white px-6 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow"
-            >
-              <Save className="w-4 h-4" />
-              <span>Salvar Parâmetros da Loja</span>
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* ABA 3: PERIFÉRICOS & HARDWARE */}
-      {activeTab === 'HARDWARE' && (
-        <div className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm p-6 overflow-y-auto space-y-6 max-w-2xl">
-          <div>
-            <h3 className="font-bold text-base text-textMain">Comunicação Serial & Impressão</h3>
-            <p className="text-xs text-textMuted">Configuração de balanças de checkout (Toledo/Filizola) e impressoras não fiscais.</p>
-          </div>
-
-          {/* BALANÇA SERIAL */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-            <div className="flex items-center space-x-2 text-xs font-bold text-textMain uppercase">
-              <Scale className="w-4 h-4 text-primary" />
-              <span>Balança de Checkout (Protocolo Toledo / Filizola)</span>
-            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-semibold text-textMuted uppercase mb-1">Porta COM</label>
-                <select
-                  value={formData.scalePort}
-                  onChange={(e) => setFormData({ ...formData, scalePort: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-surface"
-                >
-                  <option value="COM1">COM1</option>
-                  <option value="COM2">COM2</option>
-                  <option value="COM3">COM3 (Padrão USB-Serial)</option>
-                  <option value="COM4">COM4</option>
-                </select>
+                <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Telefone de Contato</label>
+                <input
+                  type="text"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-textMuted uppercase mb-1">Baud Rate</label>
-                <select
-                  value={formData.scaleBaudRate}
-                  onChange={(e) => setFormData({ ...formData, scaleBaudRate: parseInt(e.target.value) })}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-surface font-mono"
-                >
-                  <option value="4800">4800 bps</option>
-                  <option value="9600">9600 bps (Recomendado)</option>
-                  <option value="19200">19200 bps</option>
-                </select>
+                <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Endereço Completo</label>
+                <input
+                  type="text"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                />
               </div>
             </div>
-          </div>
 
-          {/* IMPRESSORA TÉRMICA */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-            <div className="flex items-center space-x-2 text-xs font-bold text-textMain uppercase">
-              <Printer className="w-4 h-4 text-primary" />
-              <span>Impressora Térmica de Cupom</span>
-            </div>
             <div>
-              <label className="block text-[11px] font-semibold text-textMuted uppercase mb-1">Largura da Bobina</label>
-              <select
-                value={formData.printerWidthMm}
-                onChange={(e) => setFormData({ ...formData, printerWidthMm: parseInt(e.target.value) })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-surface"
-              >
-                <option value="80">80mm (Padrão Varejo - EPSON TM-T20 / Bematech)</option>
-                <option value="58">58mm (Bobina Estreita)</option>
-              </select>
+              <label className="block text-xs font-semibold text-textMuted uppercase mb-1">Mensagem de Rodapé do Cupom</label>
+              <input
+                type="text"
+                value={formData.receiptFooterMessage}
+                onChange={(e) => setFormData({ ...formData, receiptFooterMessage: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs"
+              />
             </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              updateSettings(formData);
-              showToast('Periféricos configurados com sucesso!');
-            }}
-            className="bg-primary hover:bg-primary-hover text-white px-6 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow"
-          >
-            <Save className="w-4 h-4" />
-            <span>Salvar Parâmetros de Hardware</span>
-          </button>
+            {/* TOGGLE: INÍCIO AUTOMÁTICO */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-primary flex items-center justify-center">
+                  <Power className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-textMain">Iniciar automaticamente com o Sistema Operacional</p>
+                  <p className="text-[11px] text-textMuted">Abre o Mercado POS assim que o computador ligar.</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={autostartActive}
+                onChange={(e) => handleToggleAutostart(e.target.checked)}
+                className="w-5 h-5 text-primary rounded focus:ring-primary cursor-pointer accent-primary"
+              />
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="submit"
+                className="bg-primary hover:bg-primary-hover text-white px-6 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow"
+              >
+                <Save className="w-4 h-4" />
+                <span>Salvar Parâmetros da Loja</span>
+              </button>
+            </div>
+          </form>
+
+          {/* ZONA DE PERIGO - ZERAR DADOS */}
+          <div className="bg-red-50 p-4 rounded-xl border-2 border-dashed border-red-300 space-y-3">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="w-5 h-5 text-red-600" />
+              <h4 className="font-bold text-sm text-red-800">Zona de Perigo</h4>
+            </div>
+            <p className="text-xs text-red-700">A ação abaixo é irreversível e irá apagar permanentemente todos os produtos, vendas, caixas, clientes, compras e configurações do sistema.</p>
+            <button
+              type="button"
+              onClick={handleOpenResetModal}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-md"
+            >
+              <Skull className="w-4 h-4" />
+              <span>Zerar Todos os Dados do Sistema</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -426,6 +593,105 @@ export function SettingsPage() {
         }}
         onConfirm={handleExecuteRestore}
       />
+
+      {/* MODAL PARA ZERAR DADOS */}
+      <ResetDataModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onConfirm={async () => {
+          await useSettingsStore.getState().resetAllData();
+          setIsResetModalOpen(false);
+          alert('Todos os dados do sistema foram apagados com sucesso!');
+          window.location.reload();
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Modal de confirmação para a ação destrutiva de zerar o banco de dados.
+ */
+function ResetDataModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; onClose: () => void; onConfirm: () => Promise<void>; }) {
+  const [confirmationText, setConfirmationText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const confirmationPhrase = 'ZERAR TUDO';
+  const isConfirmed = confirmationText === confirmationPhrase;
+
+  useEffect(() => {
+    if (isOpen) {
+      setConfirmationText('');
+      setIsDeleting(false);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleConfirmClick = async () => {
+    if (!isConfirmed || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await onConfirm();
+    } catch (err) {
+      console.error('Erro ao confirmar exclusão:', err);
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+      <div className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border-2 border-red-500 overflow-hidden animate-fade-in">
+        <div className="p-5 bg-red-600 text-white flex items-center space-x-3">
+          <Skull className="w-8 h-8 shrink-0" />
+          <div>
+            <h3 className="font-black text-lg">AÇÃO IRREVERSÍVEL</h3>
+            <p className="text-xs text-red-100 mt-0.5">Confirmação de exclusão total dos dados.</p>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-slate-700">
+            Você está prestes a <strong>apagar permanentemente todos os dados</strong> do sistema, incluindo:
+          </p>
+          <ul className="text-xs list-disc list-inside bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1 text-slate-600">
+            <li>Todos os produtos, códigos de barras e categorias</li>
+            <li>Todo o histórico de vendas e itens vendidos</li>
+            <li>Todos os fechamentos e movimentações de caixa (incluindo dados de teste)</li>
+            <li>Todos os clientes, fornecedores e compras</li>
+            <li>Todo o histórico de estoque e configurações salvas</li>
+          </ul>
+          <p className="text-sm font-semibold text-slate-800">
+            Para confirmar, digite <strong className="font-mono text-red-600 bg-red-100 px-1.5 py-0.5 rounded">{confirmationPhrase}</strong> no campo abaixo:
+          </p>
+          <input
+            type="text"
+            value={confirmationText}
+            onChange={(e) => setConfirmationText(e.target.value)}
+            disabled={isDeleting}
+            className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl font-mono text-center text-lg font-bold tracking-widest uppercase focus:outline-none focus:border-red-500"
+          />
+
+          <div className="flex items-center justify-end space-x-3 pt-2">
+            <button 
+              type="button" 
+              onClick={onClose} 
+              disabled={isDeleting}
+              className="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmClick}
+              disabled={!isConfirmed || isDeleting}
+              className="bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg transition-all flex items-center space-x-2"
+            >
+              <Trash2 className="w-5 h-5" />
+              <span>{isDeleting ? 'Apagando tudo...' : 'Eu entendo, apagar tudo'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

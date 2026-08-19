@@ -33,8 +33,8 @@ async function initTables(db: Database) {
       unit_measure TEXT NOT NULL DEFAULT 'UN',
       cost_price_cents INTEGER NOT NULL DEFAULT 0,
       retail_price_cents INTEGER NOT NULL,
-      current_stock INTEGER NOT NULL DEFAULT 0,
-      min_stock INTEGER NOT NULL DEFAULT 0,
+      current_stock REAL NOT NULL DEFAULT 0,
+      min_stock REAL NOT NULL DEFAULT 0,
       is_weighable INTEGER NOT NULL DEFAULT 0,
       is_active INTEGER NOT NULL DEFAULT 1
     );
@@ -74,9 +74,14 @@ async function initTables(db: Database) {
       withdraws_cents INTEGER DEFAULT 0,
       expected_drawer_cents INTEGER DEFAULT 0,
       counted_cents INTEGER DEFAULT 0,
-      difference_cents INTEGER DEFAULT 0
+      difference_cents INTEGER DEFAULT 0,
+      notes TEXT
     );
   `);
+
+  try {
+    await db.execute('ALTER TABLE cash_sessions ADD COLUMN notes TEXT;');
+  } catch (_) {}
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS cash_movements (
@@ -114,7 +119,7 @@ async function initTables(db: Database) {
       sale_id TEXT NOT NULL,
       product_id TEXT NOT NULL,
       product_name TEXT NOT NULL,
-      quantity INTEGER NOT NULL,
+      quantity REAL NOT NULL,
       unit_price_cents INTEGER NOT NULL,
       cost_price_cents INTEGER NOT NULL,
       total_cents INTEGER NOT NULL,
@@ -129,9 +134,9 @@ async function initTables(db: Database) {
       product_id TEXT NOT NULL,
       product_name TEXT NOT NULL,
       type TEXT NOT NULL,
-      quantity INTEGER NOT NULL,
-      previous_balance INTEGER NOT NULL,
-      new_balance INTEGER NOT NULL,
+      quantity REAL NOT NULL,
+      previous_balance REAL NOT NULL,
+      new_balance REAL NOT NULL,
       cost_price_cents INTEGER NOT NULL,
       user_name TEXT NOT NULL,
       notes TEXT,
@@ -140,7 +145,10 @@ async function initTables(db: Database) {
   `);
 }
 
-// --- FUNÇÕES DE CAIXA ---
+// ============================================================
+// FUNÇÕES DE CAIXA
+// ============================================================
+
 export async function getActiveCashSessionDb(): Promise<{ session: CashSession | null; movements: CashMovement[] }> {
   const db = await getDb();
   const rows = await db.select<any[]>(`SELECT * FROM cash_sessions WHERE is_open = 1 LIMIT 1`);
@@ -156,30 +164,21 @@ export async function getActiveCashSessionDb(): Promise<{ session: CashSession |
     initialAmountCents: s.initial_amount_cents
   };
 
-  const movs = await db.select<any[]>(`SELECT * FROM cash_movements WHERE session_id = $1 ORDER BY timestamp DESC`, [s.id]);
-  const movements: CashMovement[] = movs.map(m => ({
-    id: m.id,
-    sessionId: m.session_id,
-    type: m.type,
-    amountCents: m.amount_cents,
-    reason: m.reason,
-    timestamp: m.timestamp,
-    userId: m.user_id
-  }));
-
-  return { session, movements };
+  const movs = await getCashMovementsDb(s.id);
+  return { session, movements: movs };
 }
 
 export async function openCashSessionDb(session: CashSession, initialMov: CashMovement) {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO cash_sessions (id, user_id, user_name, is_open, opened_at, initial_amount_cents) 
-     VALUES ($1, $2, $3, 1, $4, $5)`,
+    `INSERT INTO cash_sessions (id, user_id, user_name, is_open, opened_at, initial_amount_cents, notes) 
+     VALUES ($1, $2, $3, 1, $4, $5, '')`,
     [session.id, session.userId, session.userName, session.openedAt, session.initialAmountCents]
   );
   await db.execute(
     `INSERT INTO cash_movements (id, session_id, user_id, type, amount_cents, reason, timestamp) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT(id) DO NOTHING`,
     [initialMov.id, initialMov.sessionId, initialMov.userId, initialMov.type, initialMov.amountCents, initialMov.reason, initialMov.timestamp]
   );
 }
@@ -188,7 +187,11 @@ export async function insertCashMovementDb(mov: CashMovement) {
   const db = await getDb();
   await db.execute(
     `INSERT INTO cash_movements (id, session_id, user_id, type, amount_cents, reason, timestamp) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT(id) DO UPDATE SET
+       type = excluded.type,
+       amount_cents = excluded.amount_cents,
+       reason = excluded.reason`,
     [mov.id, mov.sessionId, mov.userId, mov.type, mov.amountCents, mov.reason, mov.timestamp]
   );
 }
@@ -231,45 +234,179 @@ export async function loadClosedCashSessionsDb(): Promise<CashClosingSummary[]> 
   }));
 }
 
-// --- FUNÇÕES DE VENDAS ---
+export async function getCashSessionsDb(): Promise<any[]> {
+  const db = await getDb();
+  const rows = await db.select<any[]>('SELECT * FROM cash_sessions ORDER BY opened_at DESC');
+  return rows.map(r => ({
+    id: r.id,
+    userId: r.user_id,
+    userName: r.user_name,
+    isOpen: Boolean(r.is_open),
+    openedAt: r.opened_at,
+    closedAt: r.closed_at,
+    initialCents: r.initial_amount_cents,
+    totalSalesCents: r.sales_cash_cents || 0,
+    totalSupplementsCents: r.supplies_cents || 0,
+    totalBleedsCents: r.withdraws_cents || 0,
+    expectedCents: r.expected_drawer_cents || 0,
+    finalCents: r.counted_cents || 0,
+    differenceCents: r.difference_cents || 0,
+    notes: r.notes || ''
+  }));
+}
+
+export async function saveCashSessionDb(session: any): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO cash_sessions (
+      id, user_id, user_name, is_open, opened_at, closed_at, initial_amount_cents,
+      sales_cash_cents, supplies_cents, withdraws_cents, expected_drawer_cents,
+      counted_cents, difference_cents, notes
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    ON CONFLICT(id) DO UPDATE SET
+      user_id = excluded.user_id,
+      user_name = excluded.user_name,
+      is_open = excluded.is_open,
+      opened_at = excluded.opened_at,
+      closed_at = excluded.closed_at,
+      initial_amount_cents = excluded.initial_amount_cents,
+      sales_cash_cents = excluded.sales_cash_cents,
+      supplies_cents = excluded.supplies_cents,
+      withdraws_cents = excluded.withdraws_cents,
+      expected_drawer_cents = excluded.expected_drawer_cents,
+      counted_cents = excluded.counted_cents,
+      difference_cents = excluded.difference_cents,
+      notes = excluded.notes`,
+    [
+      session.id,
+      session.userId || 'usr-admin',
+      session.userName || 'Administrador',
+      session.isOpen ? 1 : 0,
+      session.openedAt,
+      session.closedAt || null,
+      session.initialCents ?? session.initialAmountCents ?? 0,
+      session.totalSalesCents ?? session.salesCashCents ?? 0,
+      session.totalSupplementsCents ?? session.suppliesCents ?? 0,
+      session.totalBleedsCents ?? session.withdrawsCents ?? 0,
+      session.expectedCents ?? session.expectedDrawerCents ?? 0,
+      session.finalCents ?? session.countedCents ?? null,
+      session.differenceCents ?? 0,
+      session.notes || ''
+    ]
+  );
+}
+
+export async function getCashMovementsDb(sessionId: string): Promise<any[]> {
+  const db = await getDb();
+  const rows = await db.select<any[]>('SELECT * FROM cash_movements WHERE session_id = $1 ORDER BY rowid DESC', [sessionId]);
+
+  const seen = new Set<string>();
+  const uniqueRows: any[] = [];
+
+  for (const r of rows) {
+    const key = `${r.session_id}|${r.type}|${r.amount_cents}|${r.reason}|${r.timestamp}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueRows.push(r);
+    }
+  }
+
+  return uniqueRows.map(m => ({
+    id: m.id,
+    sessionId: m.session_id,
+    userId: m.user_id,
+    type: m.type,
+    amountCents: m.amount_cents,
+    reason: m.reason,
+    timestamp: m.timestamp
+  }));
+}
+
+export async function saveCashMovementDb(mov: any): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO cash_movements (id, session_id, user_id, type, amount_cents, reason, timestamp)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT(id) DO UPDATE SET
+       type = excluded.type,
+       amount_cents = excluded.amount_cents,
+       reason = excluded.reason`,
+    [
+      mov.id,
+      mov.sessionId,
+      mov.userId || 'usr-admin',
+      mov.type,
+      mov.amountCents ?? mov.amount_cents ?? 0,
+      mov.reason,
+      mov.timestamp
+    ]
+  );
+}
+
+export async function updateCashMovementDb(id: string, type: string, reason: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE cash_movements SET type = $1, reason = $2 WHERE id = $3', [type, reason, id]);
+}
+
+// ============================================================
+// FUNÇÕES DE VENDAS
+// ============================================================
+
 export async function saveSaleDb(sale: any) {
   const db = await getDb();
-  const mainPayment = sale.payments?.[0]?.method || 'CASH';
-  
+  const mainPayment = sale.payments?.[0]?.method || sale.payment_method || 'CASH';
+
   await db.execute(
     `INSERT INTO sales (id, session_id, user_id, customer_id, customer_name, subtotal_cents, discount_cents, total_cents, change_cents, payment_method, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     ON CONFLICT(id) DO UPDATE SET
+       subtotal_cents = excluded.subtotal_cents,
+       discount_cents = excluded.discount_cents,
+       total_cents = excluded.total_cents,
+       change_cents = excluded.change_cents,
+       payment_method = excluded.payment_method`,
     [
       sale.id,
-      sale.sessionId || null,
-      sale.userId || null,
-      sale.customer?.id || null,
-      sale.customer?.name || 'Consumidor',
-      sale.subtotalCents,
-      sale.discountCents,
-      sale.totalCents,
-      sale.changeCents,
+      sale.sessionId || sale.session_id || null,
+      sale.userId || sale.user_id || null,
+      sale.customer?.id || sale.customer_id || null,
+      sale.customer?.name || sale.customer_name || 'Consumidor',
+      sale.subtotalCents ?? sale.subtotal_cents ?? sale.totalCents ?? 0,
+      sale.discountCents ?? sale.discount_cents ?? 0,
+      sale.totalCents ?? sale.total_cents ?? 0,
+      sale.changeCents ?? sale.change_cents ?? 0,
       mainPayment,
-      sale.date
+      sale.date || sale.created_at || new Date().toLocaleString('pt-BR')
     ]
   );
 
-  for (const item of sale.items) {
-    await db.execute(
-      `INSERT INTO sale_items (id, sale_id, product_id, product_name, quantity, unit_price_cents, cost_price_cents, total_cents)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        `si-${Date.now()}-${Math.random()}`,
-        sale.id,
-        item.productId,
-        item.name,
-        item.quantity,
-        item.unitPriceCents,
-        item.costPriceCents,
-        item.totalCents
-      ]
-    );
+  if (sale.items && Array.isArray(sale.items)) {
+    for (const item of sale.items) {
+      await db.execute(
+        `INSERT INTO sale_items (id, sale_id, product_id, product_name, quantity, unit_price_cents, cost_price_cents, total_cents)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT(id) DO UPDATE SET
+           quantity = excluded.quantity,
+           total_cents = excluded.total_cents`,
+        [
+          item.id || `si-${Date.now()}-${Math.random()}`,
+          sale.id,
+          item.productId || item.product_id,
+          item.name || item.product_name,
+          item.quantity,
+          item.unitPriceCents ?? item.unit_price_cents ?? 0,
+          item.costPriceCents ?? item.cost_price_cents ?? 0,
+          item.totalCents ?? item.total_cents ?? 0
+        ]
+      );
+    }
   }
+}
+
+export async function cancelSaleDb(saleId: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM sales WHERE id = $1', [saleId]);
+  await db.execute('DELETE FROM sale_items WHERE sale_id = $1', [saleId]);
 }
 
 export async function loadSalesDb() {
@@ -277,7 +414,12 @@ export async function loadSalesDb() {
   return await db.select<any[]>(`SELECT * FROM sales ORDER BY created_at DESC`);
 }
 
-// --- FUNÇÕES DE PRODUTOS ---
+export const getSalesDb = loadSalesDb;
+
+// ============================================================
+// PRODUTOS & ESTOQUE
+// ============================================================
+
 export async function loadProductsFromDb(): Promise<Product[]> {
   try {
     const db = await getDb();
@@ -318,12 +460,25 @@ export async function loadProductsFromDb(): Promise<Product[]> {
   }
 }
 
+export const getProductsDb = loadProductsFromDb;
+
 export async function saveProductToDb(product: Product): Promise<void> {
   const db = await getDb();
   await db.execute(
-    `INSERT OR REPLACE INTO products 
+    `INSERT INTO products 
      (id, internal_code, name, category_id, unit_measure, cost_price_cents, retail_price_cents, current_stock, min_stock, is_weighable, is_active) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     ON CONFLICT(id) DO UPDATE SET
+       internal_code = excluded.internal_code,
+       name = excluded.name,
+       category_id = excluded.category_id,
+       unit_measure = excluded.unit_measure,
+       cost_price_cents = excluded.cost_price_cents,
+       retail_price_cents = excluded.retail_price_cents,
+       current_stock = excluded.current_stock,
+       min_stock = excluded.min_stock,
+       is_weighable = excluded.is_weighable,
+       is_active = excluded.is_active`,
     [
       product.id,
       product.internalCode,
@@ -340,22 +495,33 @@ export async function saveProductToDb(product: Product): Promise<void> {
   );
 
   await db.execute(`DELETE FROM product_barcodes WHERE product_id = $1`, [product.id]);
-  for (const b of product.barcodes) {
-    if (b.trim()) {
-      await db.execute(
-        `INSERT OR IGNORE INTO product_barcodes (id, product_id, barcode) VALUES ($1, $2, $3)`,
-        [`bar-${Date.now()}-${Math.random()}`, product.id, b.trim()]
-      );
+  if (product.barcodes && Array.isArray(product.barcodes)) {
+    for (const b of product.barcodes) {
+      if (b && b.trim()) {
+        await db.execute(
+          `INSERT OR IGNORE INTO product_barcodes (id, product_id, barcode) VALUES ($1, $2, $3)`,
+          [`bar-${Date.now()}-${Math.random()}`, product.id, b.trim()]
+        );
+      }
     }
   }
 
   await db.execute(`DELETE FROM product_tier_prices WHERE product_id = $1`, [product.id]);
-  for (const t of product.tierPrices) {
-    await db.execute(
-      `INSERT INTO product_tier_prices (id, product_id, min_quantity, price_cents) VALUES ($1, $2, $3, $4)`,
-      [`tier-${Date.now()}-${Math.random()}`, product.id, t.minQuantity, t.priceCents]
-    );
+  if (product.tierPrices && Array.isArray(product.tierPrices)) {
+    for (const t of product.tierPrices) {
+      await db.execute(
+        `INSERT INTO product_tier_prices (id, product_id, min_quantity, price_cents) VALUES ($1, $2, $3, $4)`,
+        [`tier-${Date.now()}-${Math.random()}`, product.id, t.minQuantity, t.priceCents]
+      );
+    }
   }
+}
+
+export const saveProductDb = saveProductToDb;
+
+export async function deleteProductDb(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM products WHERE id = $1', [id]);
 }
 
 export async function updateStockDb(productId: string, newStock: number): Promise<void> {
@@ -403,7 +569,7 @@ export async function importNexCsv(csvContent: string): Promise<number> {
     const name = cols[2];
     const costCents = Math.round(parseFloat((cols[3] || '0').replace(',', '.')) * 100) || 0;
     const retailCents = Math.round(parseFloat((cols[4] || '0').replace(',', '.')) * 100) || 0;
-    const stock = Math.round(parseFloat((cols[5] || '0').replace(',', '.'))) || 0;
+    const stock = parseFloat((cols[5] || '0').replace(',', '.')) || 0;
 
     if (!name || retailCents <= 0) continue;
 
@@ -411,9 +577,15 @@ export async function importNexCsv(csvContent: string): Promise<number> {
 
     try {
       await db.execute(
-        `INSERT OR REPLACE INTO products 
+        `INSERT INTO products 
          (id, internal_code, name, cost_price_cents, retail_price_cents, current_stock) 
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT(id) DO UPDATE SET
+           internal_code = excluded.internal_code,
+           name = excluded.name,
+           cost_price_cents = excluded.cost_price_cents,
+           retail_price_cents = excluded.retail_price_cents,
+           current_stock = excluded.current_stock`,
         [prodId, code, name, costCents, retailCents, stock]
       );
 
@@ -430,4 +602,31 @@ export async function importNexCsv(csvContent: string): Promise<number> {
   }
 
   return count;
+}
+
+// ZERA 100% DE TODAS AS TABELAS DO BANCO DE DADOS
+export async function resetDatabaseDb(): Promise<void> {
+  const db = await getDb();
+  const tables = [
+    'products',
+    'product_barcodes',
+    'product_tier_prices',
+    'categories',
+    'sales',
+    'sale_items',
+    'cash_sessions',
+    'cash_movements',
+    'inventory_movements',
+    'customers',
+    'clients',
+    'purchases',
+    'purchase_items',
+    'suppliers'
+  ];
+
+  for (const table of tables) {
+    try {
+      await db.execute(`DELETE FROM ${table}`);
+    } catch (_) {}
+  }
 }

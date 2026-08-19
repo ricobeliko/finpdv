@@ -1,71 +1,40 @@
 import { create } from 'zustand';
-import { BackupRecord, StoreSettings } from './types';
-
-const INITIAL_SETTINGS: StoreSettings = {
-  companyName: 'Mercado e Mercearia Modelo Ltda',
-  tradeName: 'MERCADO POS',
-  cnpj: '12.345.678/0001-90',
-  stateRegistration: '123/4567890',
-  phone: '(53) 3232-0000',
-  address: 'Av. Principal, 1000 - Centro, Rio Grande - RS',
-  receiptFooterMessage: 'Obrigado pela preferência! Volte sempre.',
-  printerWidthMm: 80,
-  scaleBaudRate: 9600,
-  scalePort: 'COM3',
-  autoBackupDaily: true,
-};
-
-const INITIAL_BACKUPS: BackupRecord[] = [
-  {
-    id: 'bkp-1',
-    filename: 'backup_pos_2026-08-15_08-00.db',
-    sizeBytes: 1048576 * 2.4, // ~2.4 MB
-    createdAt: '15/08/2026 08:00',
-    checksum: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    status: 'VALID',
-    type: 'AUTOMATIC',
-    recordsCount: {
-      products: 4,
-      sales: 18,
-      cashMovements: 4,
-      customers: 3,
-    },
-  },
-  {
-    id: 'bkp-2',
-    filename: 'backup_pos_2026-08-14_22-00.db',
-    sizeBytes: 1048576 * 2.1, // ~2.1 MB
-    createdAt: '14/08/2026 22:00',
-    checksum: 'sha256:4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
-    status: 'VALID',
-    type: 'MANUAL',
-    recordsCount: {
-      products: 4,
-      sales: 12,
-      cashMovements: 3,
-      customers: 3,
-    },
-  },
-];
+import { StoreSettings, BackupRecord } from './types';
+import { resetDatabaseDb } from '../../core/database/db';
+import { useProductStore } from '../products/productStore';
+import { useCashStore } from '../cash/cashStore';
+import { useCustomerStore } from '../customers/customerStore';
 
 interface SettingsState {
   settings: StoreSettings;
   backups: BackupRecord[];
   isRestoring: boolean;
   lastBackupDate: string;
-
-  // Ações
   updateSettings: (newSettings: Partial<StoreSettings>) => void;
-  createBackup: (type?: 'MANUAL' | 'AUTOMATIC') => BackupRecord;
+  createBackup: (type?: 'AUTOMATIC' | 'MANUAL') => BackupRecord;
   restoreBackup: (backupId: string) => Promise<boolean>;
-  isBackupOutdated: () => boolean;
+  importBackup: () => Promise<void>;
+  resetAllData: () => Promise<void>;
 }
 
-export const useSettingsStore = create<SettingsState>((set, get) => ({
-  settings: INITIAL_SETTINGS,
-  backups: INITIAL_BACKUPS,
+const defaultSettings: StoreSettings = {
+  companyName: 'Mercado & Mercearia Modelo LTDA',
+  tradeName: 'Mercado Modelo',
+  cnpj: '12.345.678/0001-90',
+  phone: '(11) 98765-4321',
+  address: 'Rua do Comércio, 123 - Centro',
+  receiptFooterMessage: 'Obrigado pela preferência! Volte sempre.',
+  printerName: '',
+  printerWidthMm: 80,
+  scalePort: 'COM3',
+  scaleBaudRate: 9600,
+};
+
+export const useSettingsStore = create<SettingsState>((set) => ({
+  settings: defaultSettings,
+  backups: [],
   isRestoring: false,
-  lastBackupDate: INITIAL_BACKUPS[0].createdAt,
+  lastBackupDate: new Date().toLocaleDateString('pt-BR'),
 
   updateSettings: (newSettings) => {
     set((state) => ({
@@ -74,46 +43,60 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   createBackup: (type = 'MANUAL') => {
-    const now = new Date();
-    const formattedDate = now.toLocaleString('pt-BR');
-    const isoDate = now.toISOString().replace(/[:.]/g, '-');
-    const filename = `backup_pos_${isoDate}.db`;
-
-    const newRecord: BackupRecord = {
+    const newBackup: BackupRecord = {
       id: `bkp-${Date.now()}`,
-      filename,
-      sizeBytes: Math.round(1048576 * (2.2 + Math.random() * 0.4)),
-      createdAt: formattedDate,
-      checksum: `sha256:${Math.random().toString(36).substring(2)}${Math.random().toString(36).substring(2)}`,
-      status: 'VALID',
+      filename: `backup_mercado_${new Date().toISOString().replace(/[:.]/g, '-')}.db`,
+      createdAt: new Date().toLocaleString('pt-BR'),
+      sizeBytes: 1024 * 150,
       type,
-      recordsCount: {
-        products: 4,
-        sales: 22,
-        cashMovements: 6,
-        customers: 4,
-      },
+      checksum: `sha256-${Math.random().toString(36).substring(2, 10)}`,
     };
 
     set((state) => ({
-      backups: [newRecord, ...state.backups],
-      lastBackupDate: formattedDate,
+      backups: [newBackup, ...state.backups],
+      lastBackupDate: newBackup.createdAt,
     }));
 
-    return newRecord;
+    return newBackup;
   },
 
-  restoreBackup: async (backupId: string) => {
+  restoreBackup: async (_backupId: string) => {
     set({ isRestoring: true });
-    // Simulação da cópia física atômica do arquivo SQLite
     await new Promise((resolve) => setTimeout(resolve, 1500));
     set({ isRestoring: false });
     return true;
   },
 
-  isBackupOutdated: () => {
-    const last = get().lastBackupDate;
-    if (!last) return true;
-    return false; // Validado como atualizado
+  importBackup: async () => {
+    const imported: BackupRecord = {
+      id: `bkp-imp-${Date.now()}`,
+      filename: `imported_backup_${Date.now()}.db`,
+      createdAt: new Date().toLocaleString('pt-BR'),
+      sizeBytes: 1024 * 200,
+      type: 'MANUAL',
+      checksum: `sha256-imported-${Math.random().toString(36).substring(2, 8)}`,
+    };
+    set((state) => ({
+      backups: [imported, ...state.backups],
+    }));
+  },
+
+  // ZERA BANCO SQLITE, MEMÓRIA E LOCALSTORAGE
+  resetAllData: async () => {
+    try {
+      await resetDatabaseDb();
+      localStorage.clear();
+
+      useProductStore.setState({ products: [], movements: [] });
+      useCashStore.setState({ currentSession: null, sessions: [], movements: [] });
+      useCustomerStore.setState({ customers: [] });
+
+      set({
+        backups: [],
+        lastBackupDate: 'Nenhum backup realizado',
+      });
+    } catch (err) {
+      console.error('Erro ao zerar banco de dados:', err);
+    }
   },
 }));

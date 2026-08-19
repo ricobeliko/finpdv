@@ -7,76 +7,7 @@ import {
   insertMovementDb, 
   importNexCsv 
 } from '../../core/database/db';
-
-const SEED_PRODUCTS: Product[] = [
-  {
-    id: 'prod-1',
-    internalCode: '00101',
-    name: 'Arroz Tipo 1 5kg - Safra Sul',
-    categoryId: 'cat-1',
-    unitMeasure: 'UN',
-    barcodes: ['7891234560011', '7891234560012'],
-    costPriceCents: 2200,
-    retailPriceCents: 3000,
-    tierPrices: [
-      { minQuantity: 10, priceCents: 2800 },
-      { minQuantity: 50, priceCents: 2600 }
-    ],
-    minStock: 20,
-    maxStock: 200,
-    currentStock: 85,
-    isWeighable: false,
-    isActive: true
-  },
-  {
-    id: 'prod-2',
-    internalCode: '00102',
-    name: 'Óleo de Soja 900ml',
-    categoryId: 'cat-1',
-    unitMeasure: 'UN',
-    barcodes: ['7891234560028'],
-    costPriceCents: 550,
-    retailPriceCents: 790,
-    tierPrices: [{ minQuantity: 12, priceCents: 720 }],
-    minStock: 30,
-    maxStock: 300,
-    currentStock: 14,
-    isWeighable: false,
-    isActive: true
-  },
-  {
-    id: 'prod-3',
-    internalCode: '00201',
-    name: 'Refrigerante Cola 2L',
-    categoryId: 'cat-2',
-    unitMeasure: 'UN',
-    barcodes: ['7891234560035'],
-    costPriceCents: 600,
-    retailPriceCents: 950,
-    tierPrices: [{ minQuantity: 6, priceCents: 850 }],
-    minStock: 24,
-    maxStock: 150,
-    currentStock: 48,
-    isWeighable: false,
-    isActive: true
-  },
-  {
-    id: 'prod-4',
-    internalCode: '00301',
-    name: 'Maçã Gala Nacional (Kg)',
-    categoryId: 'cat-3',
-    unitMeasure: 'KG',
-    barcodes: ['2000000003010'],
-    costPriceCents: 450,
-    retailPriceCents: 890,
-    tierPrices: [{ minQuantity: 5, priceCents: 750 }],
-    minStock: 10,
-    maxStock: 80,
-    currentStock: 5,
-    isWeighable: true,
-    isActive: true
-  }
-];
+import { useUserStore } from '../users/userStore';
 
 interface ProductState {
   products: Product[];
@@ -88,11 +19,12 @@ interface ProductState {
   saveProduct: (productData: any) => Promise<void>;
   adjustStock: (productId: string, type: MovementType, quantity: number, reason: string, notes: string, userName?: string) => Promise<void>;
   deductStockFromSale: (saleItems: Array<{ productId: string; quantity: number }>, saleId: string) => Promise<void>;
+  returnStockFromRefund: (saleItems: Array<{ productId: string; quantity: number }>, saleId: string) => Promise<void>;
   importFromCsv: (csvContent: string) => Promise<number>;
 }
 
 export const useProductStore = create<ProductState>((set, get) => ({
-  products: SEED_PRODUCTS,
+  products: [],
   categories: [
     { id: 'cat-1', name: 'Mercearia & Grãos' },
     { id: 'cat-2', name: 'Bebidas' },
@@ -106,17 +38,10 @@ export const useProductStore = create<ProductState>((set, get) => ({
     set({ isLoading: true });
     try {
       const dbProducts = await loadProductsFromDb();
-      if (dbProducts.length > 0) {
-        set({ products: dbProducts });
-      } else {
-        // Inicializa o banco com os produtos semente se estiver vazio
-        for (const p of SEED_PRODUCTS) {
-          await saveProductToDb(p);
-        }
-        set({ products: SEED_PRODUCTS });
-      }
+      set({ products: dbProducts || [] });
     } catch (err) {
-      console.warn('Usando catálogo em memória:', err);
+      console.warn('Erro ao carregar catálogo do SQLite:', err);
+      set({ products: [] });
     } finally {
       set({ isLoading: false });
     }
@@ -133,7 +58,6 @@ export const useProductStore = create<ProductState>((set, get) => ({
       isActive: formData.isActive ?? true
     };
 
-    // 1. Atualiza o estado global na memória instantaneamente
     set(state => {
       const index = state.products.findIndex(p => p.id === id);
       if (index >= 0) {
@@ -144,7 +68,6 @@ export const useProductStore = create<ProductState>((set, get) => ({
       return { products: [productToSave, ...state.products] };
     });
 
-    // 2. Persiste no arquivo SQLite
     try {
       await saveProductToDb(productToSave);
     } catch (err) {
@@ -152,7 +75,7 @@ export const useProductStore = create<ProductState>((set, get) => ({
     }
   },
 
-  adjustStock: async (productId, type, quantity, reason, notes, userName = 'Richard (Admin)') => {
+  adjustStock: async (productId, type, quantity, reason, notes, userName = 'Administrador') => {
     const product = get().products.find(p => p.id === productId);
     if (!product) return;
 
@@ -210,6 +133,25 @@ export const useProductStore = create<ProductState>((set, get) => ({
         } catch (e) {
           console.error(e);
         }
+      }
+    }
+  },
+
+  returnStockFromRefund: async (saleItems, saleId) => {
+    const { products, adjustStock } = get();
+    const currentUser = useUserStore.getState().currentUser;
+
+    for (const item of saleItems) {
+      const prod = products.find(p => p.id === item.productId);
+      if (prod) {
+        await adjustStock(
+          prod.id,
+          'ADJUST_IN',
+          item.quantity,
+          'Devolução de Venda',
+          `Estorno do Cupom #${saleId}`,
+          currentUser?.name || 'Sistema'
+        );
       }
     }
   },

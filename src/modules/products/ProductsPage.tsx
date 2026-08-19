@@ -16,7 +16,7 @@ import {
   FileUp
 } from 'lucide-react';
 import { useProductStore } from './productStore';
-import { Category, MovementType, Product } from './types';
+import { MovementType, Product } from './types';
 import { ProductFormModal } from './components/ProductFormModal';
 import { StockAdjustmentModal } from './components/StockAdjustmentModal';
 import { CategoryModal } from './components/CategoryModal';
@@ -74,8 +74,8 @@ export function ProductsPage() {
     products.forEach(p => {
       if (p.currentStock <= 0) outCount++;
       else if (p.currentStock <= p.minStock) lowCount++;
-      totalCost += p.currentStock * p.costPriceCents;
-      totalRetail += p.currentStock * p.retailPriceCents;
+      totalCost += (p.currentStock || 0) * (p.costPriceCents || 0);
+      totalRetail += (p.currentStock || 0) * (p.retailPriceCents || 0);
     });
 
     return {
@@ -93,7 +93,7 @@ export function ProductsPage() {
       const matchSearch =
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.internalCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.barcodes.some(b => b.includes(searchTerm));
+        (p.barcodes || []).some(b => b.includes(searchTerm));
 
       const matchCategory = selectedCategory === 'ALL' || p.categoryId === selectedCategory;
 
@@ -299,84 +299,92 @@ export function ProductsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
-                  {filteredProducts.map(p => {
-                    const cat = categories.find(c => c.id === p.categoryId);
-                    const isLow = p.currentStock > 0 && p.currentStock <= p.minStock;
-                    const isOut = p.currentStock <= 0;
+                  {filteredProducts.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="text-center py-16 text-slate-400 font-sans text-xs">
+                        Nenhum produto cadastrado no catálogo.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredProducts.map(p => {
+                      const cat = categories.find(c => c.id === p.categoryId);
+                      const isLow = p.currentStock > 0 && p.currentStock <= p.minStock;
+                      const isOut = p.currentStock <= 0;
 
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-50">
-                        <td className="px-3 py-2.5 font-bold text-slate-700">{p.internalCode}</td>
-                        <td className="px-3 py-2.5 font-sans">
-                          <div className="font-bold text-textMain flex items-center space-x-1.5">
-                            <span>{p.name}</span>
-                            {p.isWeighable && (
-                              <span className="bg-sky-100 text-sky-800 text-[9px] px-1 rounded font-bold border border-sky-200">
-                                Balança ({p.unitMeasure})
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-textMuted font-mono flex items-center space-x-1 mt-0.5">
-                            <Barcode className="w-3 h-3" />
-                            <span>{p.barcodes.join(' | ') || 'Sem barras'}</span>
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-textMuted font-sans">
-                          <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px] font-medium text-slate-700">
-                            {cat?.name || 'Sem Categoria'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-right text-slate-500">{formatBRL(p.costPriceCents)}</td>
-                        <td className="px-3 py-2.5 text-right font-bold text-primary">{formatBRL(p.retailPriceCents)}</td>
-                        <td className="px-3 py-2.5">
-                          {p.tierPrices.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {p.tierPrices.map((t, idx) => (
-                                <span key={idx} className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200">
-                                  ≥{t.minQuantity} un: {formatBRL(t.priceCents)}
+                      return (
+                        <tr key={p.id} className="hover:bg-slate-50">
+                          <td className="px-3 py-2.5 font-bold text-slate-700">{p.internalCode}</td>
+                          <td className="px-3 py-2.5 font-sans">
+                            <div className="font-bold text-textMain flex items-center space-x-1.5">
+                              <span>{p.name}</span>
+                              {p.isWeighable && (
+                                <span className="bg-sky-100 text-sky-800 text-[9px] px-1 rounded font-bold border border-sky-200">
+                                  Balança ({p.unitMeasure})
                                 </span>
-                              ))}
+                              )}
                             </div>
-                          ) : (
-                            <span className="text-slate-400 text-[11px] font-sans italic">Apenas varejo</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-center">
-                          <span className={`font-bold px-2 py-0.5 rounded-full text-[11px] ${
-                            isOut ? 'bg-red-100 text-red-700' :
-                            isLow ? 'bg-amber-100 text-amber-800' :
-                            'bg-emerald-100 text-emerald-800'
-                          }`}>
-                            {p.currentStock} {p.unitMeasure}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-right">
-                          <div className="inline-flex items-center space-x-1">
-                            <button
-                              onClick={() => {
-                                setStockAdjustProduct(p);
-                                setIsStockModalOpen(true);
-                              }}
-                              title="Ajustar Estoque"
-                              className="p-1 text-slate-600 hover:text-primary hover:bg-slate-100 rounded"
-                            >
-                              <ArrowLeftRight className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingProduct(p);
-                                setIsProductModalOpen(true);
-                              }}
-                              title="Editar Produto"
-                              className="p-1 text-slate-600 hover:text-primary hover:bg-slate-100 rounded"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                            <span className="text-[10px] text-textMuted font-mono flex items-center space-x-1 mt-0.5">
+                              <Barcode className="w-3 h-3" />
+                              <span>{(p.barcodes || []).join(' | ') || 'Sem barras'}</span>
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-textMuted font-sans">
+                            <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px] font-medium text-slate-700">
+                              {cat?.name || 'Sem Categoria'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-slate-500">{formatBRL(p.costPriceCents)}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-primary">{formatBRL(p.retailPriceCents)}</td>
+                          <td className="px-3 py-2.5">
+                            {(p.tierPrices || []).length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {(p.tierPrices || []).map((t, idx) => (
+                                  <span key={idx} className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200">
+                                    ≥{t.minQuantity} un: {formatBRL(t.priceCents)}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-[11px] font-sans italic">Apenas varejo</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`font-bold px-2 py-0.5 rounded-full text-[11px] ${
+                              isOut ? 'bg-red-100 text-red-700' :
+                              isLow ? 'bg-amber-100 text-amber-800' :
+                              'bg-emerald-100 text-emerald-800'
+                            }`}>
+                              {p.currentStock} {p.unitMeasure}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <div className="inline-flex items-center space-x-1">
+                              <button
+                                onClick={() => {
+                                  setStockAdjustProduct(p);
+                                  setIsStockModalOpen(true);
+                                }}
+                                title="Ajustar Estoque"
+                                className="p-1 text-slate-600 hover:text-primary hover:bg-slate-100 rounded"
+                              >
+                                <ArrowLeftRight className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingProduct(p);
+                                  setIsProductModalOpen(true);
+                                }}
+                                title="Editar Produto"
+                                className="p-1 text-slate-600 hover:text-primary hover:bg-slate-100 rounded"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -405,37 +413,45 @@ export function ProductsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
-                {movements.map(m => {
-                  const isPositive = m.quantity > 0;
-                  return (
-                    <tr key={m.id} className="hover:bg-slate-50">
-                      <td className="px-3 py-2 text-textMuted">{m.createdAt}</td>
-                      <td className="px-3 py-2 font-sans font-bold">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                          m.type === 'PURCHASE' ? 'bg-blue-100 text-blue-800' :
-                          m.type === 'SALE' ? 'bg-emerald-100 text-emerald-800' :
-                          m.type === 'ADJUST_IN' ? 'bg-indigo-100 text-indigo-800' :
-                          m.type === 'ADJUST_OUT' ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800'
-                        }`}>
-                          {m.type}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 font-sans font-medium text-textMain">{m.productName}</td>
-                      <td className="px-3 py-2 text-center font-bold">
-                        <span className={isPositive ? 'text-primary' : 'text-danger'}>
-                          {isPositive ? `+${m.quantity}` : m.quantity}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <span className="text-slate-400">{m.previousBalance}</span>
-                        <span className="mx-1 text-slate-300">→</span>
-                        <span className="font-bold text-slate-800">{m.newBalance}</span>
-                      </td>
-                      <td className="px-3 py-2 font-sans text-slate-600">{m.userName}</td>
-                      <td className="px-3 py-2 font-sans text-slate-600 italic">{m.notes}</td>
-                    </tr>
-                  );
-                })}
+                {movements.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-16 text-slate-400 font-sans text-xs">
+                      Nenhuma movimentação de estoque registrada.
+                    </td>
+                  </tr>
+                ) : (
+                  movements.map(m => {
+                    const isPositive = m.quantity > 0;
+                    return (
+                      <tr key={m.id} className="hover:bg-slate-50">
+                        <td className="px-3 py-2 text-textMuted">{m.createdAt}</td>
+                        <td className="px-3 py-2 font-sans font-bold">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                            m.type === 'PURCHASE' ? 'bg-blue-100 text-blue-800' :
+                            m.type === 'SALE' ? 'bg-emerald-100 text-emerald-800' :
+                            m.type === 'ADJUST_IN' ? 'bg-indigo-100 text-indigo-800' :
+                            m.type === 'ADJUST_OUT' ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {m.type}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-sans font-medium text-textMain">{m.productName}</td>
+                        <td className="px-3 py-2 text-center font-bold">
+                          <span className={isPositive ? 'text-primary' : 'text-danger'}>
+                            {isPositive ? `+${m.quantity}` : m.quantity}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <span className="text-slate-400">{m.previousBalance}</span>
+                          <span className="mx-1 text-slate-300">→</span>
+                          <span className="font-bold text-slate-800">{m.newBalance}</span>
+                        </td>
+                        <td className="px-3 py-2 font-sans text-slate-600">{m.userName}</td>
+                        <td className="px-3 py-2 font-sans text-slate-600 italic">{m.notes}</td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -504,6 +520,9 @@ export function ProductsPage() {
         isOpen={isCategoryModalOpen}
         onClose={() => setIsCategoryModalOpen(false)}
         onSave={(name) => {
+          useProductStore.setState(state => ({
+            categories: [...state.categories, { id: `cat-${Date.now()}`, name }]
+          }));
           setIsCategoryModalOpen(false);
         }}
       />

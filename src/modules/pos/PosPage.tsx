@@ -1,4 +1,3 @@
-import { saveSaleDb } from '../../core/database/db';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ShoppingCart, 
@@ -9,21 +8,27 @@ import {
   Percent, 
   PauseCircle, 
   Trash2, 
-  Tag,
-  Lock
+  Tag, 
+  Lock,
+  KeyRound
 } from 'lucide-react';
 import { Product } from '../products/types';
 import { CartItem, CompletedSale, Customer, SuspendedSale } from './types';
 import { useCashStore } from '../cash/cashStore';
 import { useCustomerStore } from '../customers/customerStore';
 import { useProductStore } from '../products/productStore';
+import { saveSaleDb } from '../../core/database/db';
+import { triggerDrawer } from '../../core/hardware/printer';
 import { 
   PaymentModal, 
   ProductSearchModal, 
   CustomerModal, 
   DiscountModal, 
   SuspendedSalesModal, 
-  ReceiptModal 
+  ReceiptModal, 
+  OpenPriceModal,
+  QuickProductRegisterModal,
+  ItemQuantityModal
 } from './components/PosModals';
 
 const formatBRL = (cents: number) => {
@@ -36,7 +41,7 @@ const formatBRL = (cents: number) => {
 export function PosPage() {
   const { currentSession, addMovement } = useCashStore();
   const { customers, recordCustomerSale } = useCustomerStore();
-  const { products, loadFromDb, deductStockFromSale } = useProductStore();
+  const { products, loadFromDb, saveProduct, deductStockFromSale } = useProductStore();
   const isCashOpen = !!currentSession?.isOpen;
 
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -47,7 +52,11 @@ export function PosPage() {
   const [suspendedSales, setSuspendedSales] = useState<SuspendedSale[]>([]);
   const [completedSale, setCompletedSale] = useState<CompletedSale | null>(null);
 
-  const [activeModal, setActiveModal] = useState<'PAYMENT' | 'SEARCH' | 'CUSTOMER' | 'DISCOUNT' | 'SUSPENDED' | 'RECEIPT' | null>(null);
+  // Estados de Modais
+  const [pendingQuantityProduct, setPendingQuantityProduct] = useState<{ product: Product; defaultQty: number } | null>(null);
+  const [pendingOpenPrice, setPendingOpenPrice] = useState<{ product: Product; quantity: number } | null>(null);
+  const [pendingQuickRegister, setPendingQuickRegister] = useState<{ code: string; quantity: number } | null>(null);
+  const [activeModal, setActiveModal] = useState<'PAYMENT' | 'SEARCH' | 'CUSTOMER' | 'DISCOUNT' | 'SUSPENDED' | 'RECEIPT' | 'OPEN_PRICE' | 'QUICK_REGISTER' | 'QUANTITY' | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'warning' | 'danger' } | null>(null);
 
   const barcodeRef = useRef<HTMLInputElement>(null);
@@ -68,7 +77,7 @@ export function PosPage() {
   }, [activeModal, cart, isCashOpen]);
 
   const calculatePricing = (product: Product, quantity: number) => {
-    let unitPrice = product.retailPriceCents;
+    let unitPrice = product.retailPriceCents || 0;
     let isTier = false;
 
     if (product.tierPrices && product.tierPrices.length > 0) {
@@ -83,13 +92,23 @@ export function PosPage() {
     return { unitPrice, total: Math.round(quantity * unitPrice), isTier };
   };
 
-  // INCLUSÃO NO CARRINHO
+  const handleOpenDrawer = () => {
+    const savedPrinter = localStorage.getItem('mercado_selected_printer') || '';
+    if (savedPrinter) {
+      triggerDrawer(savedPrinter);
+      showToast('Gaveta de dinheiro acionada [F8]!', 'success');
+    } else {
+      showToast('Nenhuma impressora térmica configurada.', 'warning');
+    }
+  };
+
+  // INCLUSÃO / BIPAGEM DO PRODUTO
   const handleAddItem = (rawQuery: string, explicitQty?: number) => {
     if (!isCashOpen) {
       showToast('O caixa está fechado. Abra uma sessão antes de vender.', 'warning');
       return;
     }
-    if (!rawQuery.trim()) return;
+    if (!rawQuery || !rawQuery.trim()) return;
 
     let query = rawQuery.trim();
     let qty = explicitQty || 1;
@@ -103,18 +122,68 @@ export function PosPage() {
       }
     }
 
-    // Busca no catálogo geral de produtos da store
-    const prod = products.find(p =>
-      p.barcodes.includes(query) || 
-      p.internalCode.toLowerCase() === query.toLowerCase() ||
-      p.name.toLowerCase() === query.toLowerCase()
-    );
+    // REGRA DO CÓDIGO 1: PREÇO LIVRE / VAREJO DIVERSOS
+    if (query === '1') {
+      const existingProd1 = products.find(p => p.internalCode === '1');
+      const virtualProd1: Product = existingProd1 || {
+        id: 'prod-open-price-1',
+        internalCode: '1',
+        name: 'Varejo Diversos',
+        categoryId: 'cat-1',
+        unitMeasure: 'UN',
+        barcodes: ['1'],
+        costPriceCents: 0,
+        retailPriceCents: 0,
+        tierPrices: [],
+        minStock: 0,
+        maxStock: 0,
+        currentStock: 999,
+        isWeighable: false,
+        isOpenPrice: true,
+        isActive: true
+      };
 
-    if (!prod) {
-      showToast(`Item "${query}" não encontrado no catálogo.`, 'danger');
+      setPendingOpenPrice({ product: virtualProd1, quantity: qty });
+      setActiveModal('OPEN_PRICE');
       setBarcodeInput('');
       return;
     }
+
+    const prod = products.find(p => {
+      const barcodes = p.barcodes || [];
+      const code = p.internalCode || '';
+      const name = p.name || '';
+      return (
+        barcodes.includes(query) ||
+        code.toLowerCase() === query.toLowerCase() ||
+        name.toLowerCase() === query.toLowerCase()
+      );
+    });
+
+    if (!prod) {
+      setPendingQuickRegister({ code: query, quantity: qty });
+      setActiveModal('QUICK_REGISTER');
+      setBarcodeInput('');
+      return;
+    }
+
+    if (prod.isOpenPrice || !prod.retailPriceCents || prod.retailPriceCents === 0) {
+      setPendingOpenPrice({ product: prod, quantity: qty });
+      setActiveModal('OPEN_PRICE');
+      setBarcodeInput('');
+      return;
+    }
+
+    // PRODUTO NORMAL: ABRE O MODAL DE CONFIRMAÇÃO DE QUANTIDADE (DEFAULT 1)
+    setPendingQuantityProduct({ product: prod, defaultQty: qty });
+    setActiveModal('QUANTITY');
+    setBarcodeInput('');
+  };
+
+  // CONFIRMAÇÃO DA QUANTIDADE E INCLUSÃO NO CARRINHO (PRODUTOS NORMAIS)
+  const handleConfirmQuantity = (qty: number) => {
+    if (!pendingQuantityProduct) return;
+    const { product: prod } = pendingQuantityProduct;
 
     setCart(prev => {
       const existingIdx = prev.findIndex(item => item.productId === prod.id);
@@ -138,24 +207,110 @@ export function PosPage() {
         const newItem: CartItem = {
           id: `item-${Date.now()}-${Math.random()}`,
           productId: prod.id,
-          internalCode: prod.internalCode,
-          name: prod.name,
-          unitMeasure: prod.unitMeasure,
-          costPriceCents: prod.costPriceCents,
-          retailPriceCents: prod.retailPriceCents,
+          internalCode: prod.internalCode || '1',
+          name: prod.name || 'Produto',
+          unitMeasure: prod.unitMeasure || 'UN',
+          costPriceCents: prod.costPriceCents || 0,
+          retailPriceCents: prod.retailPriceCents || 0,
           quantity: qty,
           unitPriceCents: pricing.unitPrice,
           totalCents: pricing.total,
           isTierApplied: pricing.isTier,
-          isWeighable: prod.isWeighable
+          isWeighable: Boolean(prod.isWeighable)
         };
         setSelectedCartIndex(prev.length);
         return [...prev, newItem];
       }
     });
 
-    setBarcodeInput('');
+    setActiveModal(null);
+    setPendingQuantityProduct(null);
     showToast(`${qty}x ${prod.name} inserido`, 'success');
+  };
+
+  const handleSaveAndAddQuickProduct = async (productData: {
+    name: string;
+    internalCode: string;
+    barcode: string;
+    retailPriceCents: number;
+    costPriceCents: number;
+    unitMeasure: string;
+  }) => {
+    const qty = pendingQuickRegister?.quantity || 1;
+    const newId = `prod-${Date.now()}`;
+
+    const newProd: Product = {
+      id: newId,
+      internalCode: productData.internalCode,
+      name: productData.name,
+      categoryId: 'cat-1',
+      unitMeasure: productData.unitMeasure,
+      barcodes: [productData.barcode],
+      costPriceCents: productData.costPriceCents,
+      retailPriceCents: productData.retailPriceCents,
+      tierPrices: [],
+      minStock: 5,
+      maxStock: 100,
+      currentStock: 50,
+      isWeighable: false,
+      isOpenPrice: false,
+      isActive: true
+    };
+
+    await saveProduct(newProd);
+
+    const newItem: CartItem = {
+      id: `item-${Date.now()}-${Math.random()}`,
+      productId: newId,
+      internalCode: newProd.internalCode,
+      name: newProd.name,
+      unitMeasure: newProd.unitMeasure,
+      costPriceCents: newProd.costPriceCents,
+      retailPriceCents: newProd.retailPriceCents,
+      quantity: qty,
+      unitPriceCents: newProd.retailPriceCents,
+      totalCents: Math.round(qty * newProd.retailPriceCents),
+      isTierApplied: false,
+      isWeighable: false
+    };
+
+    setCart(prev => {
+      setSelectedCartIndex(prev.length);
+      return [...prev, newItem];
+    });
+
+    setActiveModal(null);
+    setPendingQuickRegister(null);
+    showToast(`Produto "${newProd.name}" cadastrado e inserido na venda!`, 'success');
+  };
+
+  // CONFIRMAÇÃO DO PREÇO LIVRE / VAREJO DIVERSOS COM QUANTIDADE DINÂMICA
+  const handleConfirmOpenPrice = (priceCents: number, customQty: number, customName?: string) => {
+    if (!pendingOpenPrice) return;
+    const { product: prod } = pendingOpenPrice;
+    const qty = customQty || pendingOpenPrice.quantity || 1;
+    const itemName = customName?.trim() || prod.name || 'Varejo Diversos';
+
+    const newItem: CartItem = {
+      id: `item-${Date.now()}-${Math.random()}`,
+      productId: prod.id,
+      internalCode: prod.internalCode || '1',
+      name: itemName,
+      unitMeasure: prod.unitMeasure || 'UN',
+      costPriceCents: 0,
+      retailPriceCents: priceCents,
+      quantity: qty,
+      unitPriceCents: priceCents,
+      totalCents: Math.round(qty * priceCents),
+      isTierApplied: false,
+      isWeighable: false
+    };
+
+    setCart(prev => [...prev, newItem]);
+    setSelectedCartIndex(cart.length);
+    setActiveModal(null);
+    setPendingOpenPrice(null);
+    showToast(`${qty}x ${itemName} (${formatBRL(priceCents)}) inserido`, 'success');
   };
 
   const handleRemoveItem = () => {
@@ -218,50 +373,67 @@ export function PosPage() {
   }, [cart, generalDiscountCents]);
 
   const handleCompleteSale = async (sale: CompletedSale) => {
-    const cashEntry = sale.payments.find(p => p.method === 'CASH');
-    if (cashEntry) {
-      const netCashReceived = cashEntry.amountCents - sale.changeCents;
-      if (netCashReceived > 0) {
-        await addMovement('SALE', netCashReceived, `Venda PDV Cupom #${sale.id}`);
-      }
-    }
-
-    if (currentCustomer) {
-      const mainPayment = sale.payments[0]?.method || 'DINHEIRO';
-      recordCustomerSale(currentCustomer.id, sale.totalCents, cartTotals.totalCount, mainPayment);
-    }
-
-    // Baixa de estoque física
-    await deductStockFromSale(
-      sale.items.map(i => ({ productId: i.productId, quantity: i.quantity })),
-      sale.id
-    );
-
-    // Grava a venda com itens no SQLite
     try {
+      const totalCashPaidCents = (sale.payments || [])
+        .filter(p => p.method === 'CASH')
+        .reduce((sum, p) => sum + p.amountCents, 0);
+
+      const netCashToDrawer = Math.max(0, totalCashPaidCents - (sale.changeCents || 0));
+
+      if (netCashToDrawer > 0) {
+        await addMovement('SALE', netCashToDrawer, `Venda PDV Cupom #${sale.id}`, `mov-sale-${sale.id}`);
+      }
+
+      if (currentCustomer) {
+        const mainPayment = sale.payments[0]?.method || 'DINHEIRO';
+        recordCustomerSale(currentCustomer.id, sale.totalCents, cartTotals.totalCount, mainPayment);
+      }
+
+      await deductStockFromSale(
+        sale.items.map(i => ({ productId: i.productId, quantity: i.quantity })),
+        sale.id
+      );
+
       await saveSaleDb({
         ...sale,
         sessionId: currentSession?.id,
         userId: currentSession?.userId
       });
-    } catch (err) {
-      console.error('Erro ao gravar venda no banco:', err);
-    }
 
-    setCompletedSale(sale);
-    setCart([]);
-    setCurrentCustomer(null);
-    setGeneralDiscountCents(0);
-    setActiveModal('RECEIPT');
-    showToast(`Venda de ${formatBRL(sale.totalCents)} finalizada com sucesso!`);
+      // Operações que não precisam ser revertidas (efeitos colaterais)
+      const savedPrinter = localStorage.getItem('mercado_selected_printer') || '';
+      if (savedPrinter) {
+        triggerDrawer(savedPrinter);
+      }
+
+      // Somente se tudo deu certo, limpa o estado
+      setCompletedSale(sale);
+      setCart([]);
+      setCurrentCustomer(null);
+      setGeneralDiscountCents(0);
+      setActiveModal('RECEIPT');
+      showToast(`Venda de ${formatBRL(sale.totalCents)} finalizada com sucesso!`);
+
+    } catch (err) {
+      console.error('FALHA CRÍTICA AO COMPLETAR VENDA:', err);
+      showToast('Erro crítico ao salvar a venda. Verifique o console e tente novamente.', 'danger');
+      // IMPORTANTE: Não limpa o carrinho nem o estado, permitindo uma nova tentativa.
+    }
   };
 
+  // TECLAS DE ATALHO GLOBAIS (F1 até F8)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         if (activeModal) setActiveModal(null);
         else handleCancelSale();
+        return;
+      }
+
+      if (e.key === 'F8') {
+        e.preventDefault();
+        handleOpenDrawer();
         return;
       }
 
@@ -289,6 +461,7 @@ export function PosPage() {
           else showToast('Adicione itens antes de aplicar desconto.', 'warning');
           break;
         case 'F6':
+        case 'Delete':
           e.preventDefault();
           handleRemoveItem();
           break;
@@ -357,55 +530,57 @@ export function PosPage() {
               <div className="h-full flex flex-col items-center justify-center text-textMuted p-6">
                 <Barcode className="w-12 h-12 text-slate-300 mb-2 stroke-[1.5]" />
                 <p className="text-sm font-semibold text-slate-600">Caixa Livre para Registro</p>
-                <p className="text-xs text-slate-400 mt-0.5">Passe o código de barras ou use [F3] para buscar ({products.length} itens no catálogo)</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Passe o código de barras ou digite <strong className="text-primary font-mono font-bold">1 + ENTER</strong> para Preço Livre
+                </p>
               </div>
             ) : (
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-100 text-textMuted uppercase text-[10px] sticky top-0 border-b border-slate-200 z-10">
-                  <tr>
-                    <th className="px-3 py-2 text-center w-8">#</th>
-                    <th className="px-3 py-2">Item / Descrição</th>
-                    <th className="px-3 py-2 text-center w-16">Qtd</th>
-                    <th className="px-3 py-2 text-right w-24">Unitário</th>
-                    <th className="px-3 py-2 text-right w-24">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-mono">
-                  {cart.map((item, idx) => {
-                    const isSelected = idx === selectedCartIndex;
-                    return (
-                      <tr
-                        key={item.id}
-                        onClick={() => setSelectedCartIndex(idx)}
-                        className={`cursor-pointer transition-colors ${
-                          isSelected ? 'bg-emerald-50 text-emerald-950 font-bold border-l-4 border-primary' : 'hover:bg-slate-50'
-                        }`}
-                      >
-                        <td className="px-3 py-2 text-center text-slate-400 text-[11px]">{idx + 1}</td>
-                        <td className="px-3 py-2 font-sans">
-                          <div className="font-bold text-textMain text-xs flex items-center space-x-1.5">
-                            <span>{item.name}</span>
-                            {item.isTierApplied && (
-                              <span className="bg-primary text-white text-[9px] px-1 rounded font-bold">ATACADO</span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-textMuted font-mono">Cód: {item.internalCode}</span>
-                        </td>
-                        <td className="px-3 py-2 text-center font-bold text-xs">{item.quantity} {item.unitMeasure}</td>
-                        <td className="px-3 py-2 text-right text-xs">
-                          {item.isTierApplied && (
-                            <span className="line-through text-slate-400 text-[10px] block">
-                              {formatBRL(item.retailPriceCents)}
-                            </span>
-                          )}
-                          <span>{formatBRL(item.unitPriceCents)}</span>
-                        </td>
-                        <td className="px-3 py-2 text-right font-bold text-xs text-primary">{formatBRL(item.totalCents)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <table className="w-full text-left text-sm border-collapse">
+  <thead className="bg-slate-100 text-textMuted uppercase text-xs sticky top-0 border-b border-slate-200 z-10">
+    <tr>
+      <th className="px-3.5 py-2.5 text-center w-10">#</th>
+      <th className="px-3.5 py-2.5">Item / Descrição</th>
+      <th className="px-3.5 py-2.5 text-center w-20">Qtd</th>
+      <th className="px-3.5 py-2.5 text-right w-28">Unitário</th>
+      <th className="px-3.5 py-2.5 text-right w-28">Total</th>
+    </tr>
+  </thead>
+  <tbody className="divide-y divide-slate-100 font-mono">
+    {cart.map((item, idx) => {
+      const isSelected = idx === selectedCartIndex;
+      return (
+        <tr
+          key={item.id}
+          onClick={() => setSelectedCartIndex(idx)}
+          className={`cursor-pointer transition-colors ${
+            isSelected ? 'bg-emerald-50 text-emerald-950 font-bold border-l-4 border-primary' : 'hover:bg-slate-50'
+          }`}
+        >
+          <td className="px-3.5 py-2.5 text-center text-slate-400 text-xs font-semibold">{idx + 1}</td>
+          <td className="px-3.5 py-2.5 font-sans">
+            <div className="font-bold text-textMain text-sm flex items-center space-x-1.5 leading-snug">
+              <span>{item.name}</span>
+              {item.isTierApplied && (
+                <span className="bg-primary text-white text-[10px] px-1.5 py-0.5 rounded font-bold">ATACADO</span>
+              )}
+            </div>
+            <span className="text-xs text-textMuted font-mono">Cód: {item.internalCode}</span>
+          </td>
+          <td className="px-3.5 py-2.5 text-center font-bold text-sm">{item.quantity} {item.unitMeasure}</td>
+          <td className="px-3.5 py-2.5 text-right text-sm">
+            {item.isTierApplied && (
+              <span className="line-through text-slate-400 text-xs block">
+                {formatBRL(item.retailPriceCents)}
+              </span>
+            )}
+            <span className="font-semibold">{formatBRL(item.unitPriceCents)}</span>
+          </td>
+          <td className="px-3.5 py-2.5 text-right font-black text-sm text-primary">{formatBRL(item.totalCents)}</td>
+        </tr>
+      );
+    })}
+  </tbody>
+</table>
             )}
           </div>
 
@@ -423,7 +598,7 @@ export function PosPage() {
                 type="text"
                 value={barcodeInput}
                 onChange={(e) => setBarcodeInput(e.target.value)}
-                placeholder={isCashOpen ? "Código de barras ou quantidade*código (Ex: 10*00101)..." : "Caixa fechado para vendas"}
+                placeholder={isCashOpen ? "Bipe o código de barras ou digite '1' para Preço Livre..." : "Caixa fechado para vendas"}
                 className="w-full pl-4 pr-24 py-3 bg-surface border-2 border-primary/40 rounded-xl font-mono text-sm font-bold text-textMain focus:outline-none focus:border-primary disabled:bg-slate-100 disabled:border-slate-300 shadow-inner"
               />
               <button
@@ -516,25 +691,48 @@ export function PosPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 shrink-0">
+          {/* BOTÕES INFERIORES: GAVETA (F8), SUSPENDER (F7) E CANCELAR (ESC) */}
+          <div className="grid grid-cols-3 gap-2 shrink-0">
+            <button
+              onClick={handleOpenDrawer}
+              className="bg-emerald-800 hover:bg-emerald-700 text-emerald-100 py-3 px-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 border border-emerald-700 shadow-sm"
+              title="Abrir Gaveta de Dinheiro"
+            >
+              <KeyRound className="w-4 h-4 text-emerald-300" />
+              <span>[F8] Gaveta</span>
+            </button>
+
             <button
               onClick={cart.length > 0 ? handleSuspendSale : () => setActiveModal('SUSPENDED')}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 border border-slate-700"
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-3 px-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 border border-slate-700"
             >
               <PauseCircle className="w-4 h-4 text-amber-400" />
-              <span>[F7] {cart.length > 0 ? 'Suspender Venda' : `Recuperar (${suspendedSales.length})`}</span>
+              <span>[F7] {cart.length > 0 ? 'Suspender' : `Espera (${suspendedSales.length})`}</span>
             </button>
 
             <button
               onClick={handleCancelSale}
-              className="bg-red-950/80 hover:bg-red-900 text-red-200 py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 border border-red-800"
+              className="bg-red-950/80 hover:bg-red-900 text-red-200 py-3 px-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 border border-red-800"
             >
               <Trash2 className="w-4 h-4 text-red-400" />
-              <span>[ESC] Cancelar Venda</span>
+              <span>[ESC] Cancelar</span>
             </button>
           </div>
         </div>
       </div>
+
+      {/* MODAL DE QUANTIDADE AO BIPAR */}
+      {activeModal === 'QUANTITY' && pendingQuantityProduct && (
+        <ItemQuantityModal
+          product={pendingQuantityProduct.product}
+          defaultQuantity={pendingQuantityProduct.defaultQty}
+          onConfirm={handleConfirmQuantity}
+          onClose={() => {
+            setActiveModal(null);
+            setPendingQuantityProduct(null);
+          }}
+        />
+      )}
 
       {/* MODAL DE PAGAMENTO */}
       {activeModal === 'PAYMENT' && (
@@ -548,7 +746,7 @@ export function PosPage() {
         />
       )}
 
-      {/* MODAL DE BUSCA LENDO DA STORE REAL */}
+      {/* MODAL DE BUSCA */}
       {activeModal === 'SEARCH' && (
         <ProductSearchModal
           catalog={products}
@@ -560,12 +758,38 @@ export function PosPage() {
         />
       )}
 
+      {/* MODAL DE PREÇO LIVRE / VAREJO (COM CAMPO DE QUANTIDADE E SALTO NO ENTER) */}
+      {activeModal === 'OPEN_PRICE' && pendingOpenPrice && (
+        <OpenPriceModal
+          product={pendingOpenPrice.product}
+          quantity={pendingOpenPrice.quantity}
+          onConfirm={handleConfirmOpenPrice}
+          onClose={() => {
+            setActiveModal(null);
+            setPendingOpenPrice(null);
+          }}
+        />
+      )}
+
+      {/* MODAL DE CADASTRO RÁPIDO */}
+      {activeModal === 'QUICK_REGISTER' && pendingQuickRegister && (
+        <QuickProductRegisterModal
+          scannedCode={pendingQuickRegister.code}
+          quantity={pendingQuickRegister.quantity}
+          onSaveAndAdd={handleSaveAndAddQuickProduct}
+          onClose={() => {
+            setActiveModal(null);
+            setPendingQuickRegister(null);
+          }}
+        />
+      )}
+
       {/* MODAL DE CLIENTES */}
       {activeModal === 'CUSTOMER' && (
         <CustomerModal
           customers={customers}
           currentCustomer={currentCustomer}
-          onSelectCustomer={(c) => {
+          onSelectCustomer={(c: Customer | null) => {
             setCurrentCustomer(c);
             setActiveModal(null);
             showToast(`Cliente ${c ? c.name : 'removido'} vinculado.`);
@@ -578,7 +802,7 @@ export function PosPage() {
       {activeModal === 'DISCOUNT' && (
         <DiscountModal
           subtotalCents={cartTotals.subtotalCents}
-          onApply={(d) => {
+          onApply={(d: number) => {
             setGeneralDiscountCents(d);
             setActiveModal(null);
             showToast(`Desconto de ${formatBRL(d)} aplicado.`);
@@ -592,7 +816,7 @@ export function PosPage() {
         <SuspendedSalesModal
           suspendedSales={suspendedSales}
           onResume={handleResumeSale}
-          onDelete={(id) => setSuspendedSales(prev => prev.filter(s => s.id !== id))}
+          onDelete={(id: string) => setSuspendedSales(prev => prev.filter(s => s.id !== id))}
           onClose={() => setActiveModal(null)}
         />
       )}

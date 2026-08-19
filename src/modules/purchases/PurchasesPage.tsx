@@ -1,20 +1,17 @@
 import React, { useState } from 'react';
 import { 
-  Truck, 
   Building2, 
   Receipt, 
   Plus, 
   Search, 
-  CheckCircle2, 
-  Calendar, 
   DollarSign, 
-  FileText, 
-  ArrowRight 
+  X
 } from 'lucide-react';
 import { Product } from '../products/types';
 import { PurchaseOrder, Supplier } from './types';
 import { SupplierFormModal } from './components/SupplierFormModal';
 import { NewPurchaseModal } from './components/NewPurchaseModal';
+import { useProductStore } from '../products/productStore';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -23,95 +20,12 @@ const formatBRL = (cents: number) => {
   });
 };
 
-const INITIAL_SUPPLIERS: Supplier[] = [
-  {
-    id: 'sup-1',
-    companyName: 'Grãos & Cereais do Sul Ltda',
-    tradeName: 'Safra Sul Alimentos',
-    document: '12.345.678/0001-90',
-    phone: '(53) 3232-4400',
-    contactName: 'Marcos Vendas',
-    email: 'pedidos@safrasul.com.br',
-    createdAt: '10/01/2026'
-  },
-  {
-    id: 'sup-2',
-    companyName: 'Bebidas e Refrigerantes Regional S.A.',
-    tradeName: 'Distribuidora Regional',
-    document: '98.765.432/0001-11',
-    phone: '(53) 3233-8899',
-    contactName: 'Luciana Comercial',
-    email: 'comercial@regionalbebidas.com',
-    createdAt: '15/02/2026'
-  }
-];
-
-const INITIAL_PURCHASES: PurchaseOrder[] = [
-  {
-    id: 'po-1',
-    orderNumber: 'COMPRA-1042',
-    supplierId: 'sup-1',
-    supplierName: 'Safra Sul Alimentos',
-    status: 'RECEIVED',
-    totalCents: 220000, // R$ 2.200,00
-    receivedAt: '15/08/2026 09:30',
-    invoiceNumber: 'NF-e 1042',
-    notes: 'Entrada de 100 pacotes de arroz 5kg',
-    items: [
-      {
-        id: 'pi-1',
-        productId: 'prod-1',
-        productName: 'Arroz Tipo 1 5kg - Safra Sul',
-        internalCode: '00101',
-        unitMeasure: 'UN',
-        quantity: 100,
-        unitCostCents: 2200,
-        totalCostCents: 220000
-      }
-    ]
-  }
-];
-
-const INITIAL_PRODUCTS: Product[] = [
-  {
-    id: 'prod-1',
-    internalCode: '00101',
-    name: 'Arroz Tipo 1 5kg - Safra Sul',
-    categoryId: 'cat-1',
-    unitMeasure: 'UN',
-    barcodes: ['7891234560011'],
-    costPriceCents: 2200,
-    retailPriceCents: 3000,
-    tierPrices: [{ minQuantity: 10, priceCents: 2800 }],
-    minStock: 20,
-    maxStock: 200,
-    currentStock: 85,
-    isWeighable: false,
-    isActive: true
-  },
-  {
-    id: 'prod-2',
-    internalCode: '00102',
-    name: 'Óleo de Soja 900ml',
-    categoryId: 'cat-1',
-    unitMeasure: 'UN',
-    barcodes: ['7891234560028'],
-    costPriceCents: 550,
-    retailPriceCents: 790,
-    tierPrices: [{ minQuantity: 12, priceCents: 720 }],
-    minStock: 30,
-    maxStock: 300,
-    currentStock: 14,
-    isWeighable: false,
-    isActive: true
-  }
-];
-
 export function PurchasesPage() {
   const [activeTab, setActiveTab] = useState<'PURCHASES' | 'SUPPLIERS'>('PURCHASES');
-  const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
-  const [purchases, setPurchases] = useState<PurchaseOrder[]>(INITIAL_PURCHASES);
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
+  
+  const { products, adjustStock } = useProductStore();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
@@ -133,7 +47,7 @@ export function PurchasesPage() {
   };
 
   // CONFIRMAR ENTRADA DE COMPRA
-  const handleConfirmPurchase = (data: {
+  const handleConfirmPurchase = async (data: {
     supplierId: string;
     supplierName: string;
     invoiceNumber: string;
@@ -160,20 +74,16 @@ export function PurchasesPage() {
     // 1. Grava no histórico de ordens de compra
     setPurchases(prev => [newOrder, ...prev]);
 
-    // 2. Atualiza estoque e preço de custo nos produtos
-    setProducts(prevProds => {
-      return prevProds.map(prod => {
-        const itemReceived = data.items.find(i => i.productId === prod.id);
-        if (itemReceived) {
-          return {
-            ...prod,
-            currentStock: prod.currentStock + itemReceived.quantity,
-            costPriceCents: itemReceived.unitCostCents // Atualiza com o novo custo
-          };
-        }
-        return prod;
-      });
-    });
+    // 2. Atualiza estoque no banco de dados e na memória
+    for (const item of data.items) {
+      await adjustStock(
+        item.productId,
+        'PURCHASE',
+        item.quantity,
+        'Entrada por Compra',
+        `Nota Fiscal ${data.invoiceNumber || orderNum}`
+      );
+    }
 
     setIsPurchaseModalOpen(false);
   };
@@ -275,25 +185,33 @@ export function PurchasesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
-                {filteredPurchases.map(p => (
-                  <tr
-                    key={p.id}
-                    onClick={() => setSelectedPurchase(p)}
-                    className="hover:bg-slate-50 cursor-pointer"
-                  >
-                    <td className="px-4 py-3 font-bold text-slate-700">{p.orderNumber}</td>
-                    <td className="px-4 py-3 font-sans font-semibold text-textMain">{p.supplierName}</td>
-                    <td className="px-4 py-3 text-textMuted">{p.invoiceNumber || 'S/N'}</td>
-                    <td className="px-4 py-3 text-textMuted">{p.receivedAt}</td>
-                    <td className="px-4 py-3 text-center">{p.items.length} itens</td>
-                    <td className="px-4 py-3 text-right font-bold text-primary">{formatBRL(p.totalCents)}</td>
-                    <td className="px-4 py-3 text-center font-sans">
-                      <span className="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full text-[10px]">
-                        RECEBIDO
-                      </span>
+                {filteredPurchases.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-12 text-slate-400 font-sans text-xs">
+                      Nenhuma entrada de compra registrada.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredPurchases.map(p => (
+                    <tr
+                      key={p.id}
+                      onClick={() => setSelectedPurchase(p)}
+                      className="hover:bg-slate-50 cursor-pointer"
+                    >
+                      <td className="px-4 py-3 font-bold text-slate-700">{p.orderNumber}</td>
+                      <td className="px-4 py-3 font-sans font-semibold text-textMain">{p.supplierName}</td>
+                      <td className="px-4 py-3 text-textMuted">{p.invoiceNumber || 'S/N'}</td>
+                      <td className="px-4 py-3 text-textMuted">{p.receivedAt}</td>
+                      <td className="px-4 py-3 text-center">{p.items.length} itens</td>
+                      <td className="px-4 py-3 text-right font-bold text-primary">{formatBRL(p.totalCents)}</td>
+                      <td className="px-4 py-3 text-center font-sans">
+                        <span className="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full text-[10px]">
+                          RECEBIDO
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -316,19 +234,27 @@ export function PurchasesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
-                {filteredSuppliers.map(s => (
-                  <tr key={s.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-sans">
-                      <p className="font-bold text-textMain">{s.tradeName}</p>
-                      <p className="text-[10px] text-textMuted">{s.companyName}</p>
+                {filteredSuppliers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-12 text-slate-400 font-sans text-xs">
+                      Nenhum fornecedor cadastrado.
                     </td>
-                    <td className="px-4 py-3 text-slate-700">{s.document}</td>
-                    <td className="px-4 py-3 font-sans text-slate-700">{s.contactName || '-'}</td>
-                    <td className="px-4 py-3 text-slate-700">{s.phone || '-'}</td>
-                    <td className="px-4 py-3 font-sans text-textMuted">{s.email || '-'}</td>
-                    <td className="px-4 py-3 text-center text-textMuted">{s.createdAt}</td>
                   </tr>
-                ))}
+                ) : (
+                  filteredSuppliers.map(s => (
+                    <tr key={s.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 font-sans">
+                        <p className="font-bold text-textMain">{s.tradeName}</p>
+                        <p className="text-[10px] text-textMuted">{s.companyName}</p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{s.document}</td>
+                      <td className="px-4 py-3 font-sans text-slate-700">{s.contactName || '-'}</td>
+                      <td className="px-4 py-3 text-slate-700">{s.phone || '-'}</td>
+                      <td className="px-4 py-3 font-sans text-textMuted">{s.email || '-'}</td>
+                      <td className="px-4 py-3 text-center text-textMuted">{s.createdAt}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -361,7 +287,7 @@ export function PurchasesPage() {
                 <p className="text-xs text-textMuted">{selectedPurchase.supplierName} • {selectedPurchase.receivedAt}</p>
               </div>
               <button onClick={() => setSelectedPurchase(null)} className="text-textMuted hover:text-textMain p-1">
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 

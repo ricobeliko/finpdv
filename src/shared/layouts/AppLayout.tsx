@@ -10,7 +10,10 @@ import {
   Keyboard, 
   Database, 
   ShieldCheck,
-  User
+  User,
+  Minus,
+  Square,
+  X
 } from 'lucide-react';
 import { useUserStore } from '../../modules/users/userStore';
 
@@ -33,6 +36,27 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
   const { currentUser } = useUserStore();
   const [showShortcuts, setShowShortcuts] = useState(false);
 
+  const handleMinimize = async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().minimize();
+    } catch (_) {}
+  };
+
+  const handleToggleMaximize = async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().toggleMaximize();
+    } catch (_) {}
+  };
+
+  const handleClose = async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().close();
+    } catch (_) {}
+  };
+
   // Todas as abas liberadas para o Administrador
   const menuItems: MenuItemConfig[] = [
     { id: 'POS', label: 'PDV (Caixa)', icon: ShoppingCart },
@@ -46,19 +70,19 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-textMain overflow-hidden select-none font-sans">
-      {/* HEADER SUPERIOR */}
-      <header className="h-14 bg-primary text-white px-6 flex items-center justify-between shadow-md shrink-0">
-        <div className="flex items-center space-x-3">
+      {/* HEADER SUPERIOR (FRAMELESS COM DRAG REGION) */}
+      <header data-tauri-drag-region className="h-14 bg-primary text-white px-5 flex items-center justify-between shadow-md shrink-0 select-none">
+        <div data-tauri-drag-region className="flex items-center space-x-3 cursor-default">
           <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center border border-white/20">
             <ShoppingCart className="w-5 h-5 text-highlight" />
           </div>
-          <div>
-            <h1 className="font-bold text-base leading-none tracking-wide">MERCEARIA UBER</h1>
-            <p className="text-[11px] text-white/70 mt-0.5">Sistema de Gestão Comercial e PDV</p>
+          <div data-tauri-drag-region>
+            <h1 data-tauri-drag-region className="font-bold text-base leading-none tracking-wide">MERCEARIA UBER</h1>
+            <p data-tauri-drag-region className="text-[11px] text-white/70 mt-0.5">Sistema de Gestão Comercial e PDV</p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-3">
           <button
             onClick={() => setShowShortcuts(true)}
             className="flex items-center space-x-1.5 text-xs bg-white/10 hover:bg-white/20 text-white px-2.5 py-1 rounded border border-white/20 transition-colors"
@@ -78,6 +102,34 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
                 Acesso Total (Admin)
               </span>
             </div>
+          </div>
+
+          {/* CONTROLES NATIVOS DE JANELA (SEM BORDAS) */}
+          <div className="flex items-center space-x-1 pl-2 border-l border-white/20">
+            <button
+              type="button"
+              onClick={handleMinimize}
+              title="Minimizar"
+              className="w-8 h-8 rounded-lg hover:bg-white/20 flex items-center justify-center transition-colors text-white/80 hover:text-white"
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleMaximize}
+              title="Maximizar / Restaurar"
+              className="w-8 h-8 rounded-lg hover:bg-white/20 flex items-center justify-center transition-colors text-white/80 hover:text-white"
+            >
+              <Square className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleClose}
+              title="Fechar Aplicação"
+              className="w-8 h-8 rounded-lg hover:bg-red-600 flex items-center justify-center transition-colors text-white/80 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </header>

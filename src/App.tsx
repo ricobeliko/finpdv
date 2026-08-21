@@ -16,6 +16,7 @@ import { CloseCashBlindModal, CashClosingReportModal } from './modules/cash/comp
 import { CashClosingSummary } from './modules/cash/types';
 
 import { useCustomerStore } from './modules/customers/customerStore';
+import { enable, isEnabled } from '@tauri-apps/plugin-autostart';
 
 // Módulos restritos a administradores/gerentes
 const ADMIN_ONLY_MODULES: ModuleType[] = ['SETTINGS', 'USERS', 'REPORTS', 'PURCHASES', 'PRODUCTS'];
@@ -37,6 +38,13 @@ export default function App() {
     loadFromDb();
     initCash();
     loadCustomers();
+
+    // Ativa o início automático com o Windows
+    isEnabled().then((active) => {
+      if (!active) {
+        enable().catch((err) => console.warn('Autostart enable:', err));
+      }
+    }).catch(() => {});
   }, []);
 
   // REDIRECIONA AUTOMATICAMENTE CASO O OPERADOR NÃO TENHA PERMISSÃO NA ABA ATUAL

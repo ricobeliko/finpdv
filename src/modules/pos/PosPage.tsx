@@ -527,11 +527,11 @@ export function PosPage() {
                 <p className="text-xs text-slate-400 mt-0.5">Acesse o menu "Movimento de Caixa" para abrir a sessão de vendas.</p>
               </div>
             ) : cart.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-textMuted p-6">
-                <Barcode className="w-12 h-12 text-slate-300 mb-2 stroke-[1.5]" />
-                <p className="text-sm font-semibold text-slate-600">Caixa Livre para Registro</p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Passe o código de barras ou digite <strong className="text-primary font-mono font-bold">1 + ENTER</strong> para Preço Livre
+              <div className="h-full flex flex-col items-center justify-center text-textMuted p-6 animate-fade-in">
+                <img src="/icon.png" alt="Mercearia Uber" className="w-16 h-16 rounded-2xl shadow-md mb-3 object-cover opacity-95" />
+                <p className="text-sm font-bold text-slate-700">Caixa Livre para Registro</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Passe o código de barras, pressione <strong className="text-primary font-mono font-bold">[F3]</strong> para busca ou digite <strong className="text-primary font-mono font-bold">[1 + ENTER]</strong> para Preço Livre
                 </p>
               </div>
             ) : (

@@ -73,12 +73,14 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
       {/* HEADER SUPERIOR (FRAMELESS COM DRAG REGION) */}
       <header data-tauri-drag-region className="h-14 bg-primary text-white px-5 flex items-center justify-between shadow-md shrink-0 select-none">
         <div data-tauri-drag-region className="flex items-center space-x-3 cursor-default">
-          <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center border border-white/20">
-            <ShoppingCart className="w-5 h-5 text-highlight" />
-          </div>
+          <img 
+            src="/icon.png" 
+            alt="Logo Mercearia Uber" 
+            className="w-9 h-9 rounded-xl shadow-md border border-white/20 object-cover pointer-events-none" 
+          />
           <div data-tauri-drag-region>
-            <h1 data-tauri-drag-region className="font-bold text-base leading-none tracking-wide">MERCEARIA UBER</h1>
-            <p data-tauri-drag-region className="text-[11px] text-white/70 mt-0.5">Sistema de Gestão Comercial e PDV</p>
+            <h1 data-tauri-drag-region className="font-bold text-base leading-none tracking-wide text-white">MERCEARIA UBER</h1>
+            <p data-tauri-drag-region className="text-[11px] text-emerald-200 mt-0.5">Sistema de Gestão Comercial e PDV</p>
           </div>
         </div>
 

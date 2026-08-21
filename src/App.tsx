@@ -17,6 +17,7 @@ import { CashClosingSummary } from './modules/cash/types';
 
 import { useCustomerStore } from './modules/customers/customerStore';
 import { enable, isEnabled } from '@tauri-apps/plugin-autostart';
+import { AutoUpdateNotification } from './shared/components/AutoUpdateNotification';
 
 // Módulos restritos a administradores/gerentes
 const ADMIN_ONLY_MODULES: ModuleType[] = ['SETTINGS', 'USERS', 'REPORTS', 'PURCHASES', 'PRODUCTS'];
@@ -145,6 +146,9 @@ export default function App() {
           onClose={handleDismissClosingReport}
         />
       )}
+
+      {/* NOTIFICAÇÃO FLUTUANTE DE ATUALIZAÇÃO AUTOMÁTICA */}
+      <AutoUpdateNotification />
     </>
   );
 }

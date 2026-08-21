@@ -66,6 +66,13 @@ export function SettingsPage() {
 
   // Estado do Auto-Updater
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'IDLE' });
+  const [appVersion, setAppVersion] = useState('0.1.1');
+
+  useEffect(() => {
+    import('@tauri-apps/api/app')
+      .then(({ getVersion }) => getVersion().then(setAppVersion).catch(() => {}))
+      .catch(() => {});
+  }, []);
 
   const handleCheckUpdates = async () => {
     await checkForAppUpdates((status) => {
@@ -598,7 +605,7 @@ export function SettingsPage() {
                   <span>Atualizações Globais do Sistema</span>
                 </h3>
                 <p className="text-xs text-textMuted mt-0.5">
-                  Versão atual instalada: <strong className="font-mono text-slate-800">v0.1.0</strong>
+                  Versão atual instalada: <strong className="font-mono text-slate-800">v{appVersion}</strong>
                 </p>
               </div>
 

@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install Rust stable
@@ -34,11 +34,18 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Setup Signing Key File
+        shell: pwsh
+        run: |
+          Set-Content -Path "$env:RUNNER_TEMP\updater_key" -Value $env:KEY_CONTENT
+        env:
+          KEY_CONTENT: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
       - name: Build Tauri App & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ runner.temp }}\updater_key
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
@@ -46,4 +53,5 @@ jobs:
           releaseBody: 'Atualização automática do sistema Mercearia Uber.'
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true
           args: ${{ matrix.args }}

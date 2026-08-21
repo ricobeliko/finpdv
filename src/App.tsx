@@ -17,6 +17,7 @@ import { CashClosingSummary } from './modules/cash/types';
 
 import { useCustomerStore } from './modules/customers/customerStore';
 import { enable, isEnabled } from '@tauri-apps/plugin-autostart';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AutoUpdateNotification } from './shared/components/AutoUpdateNotification';
 
 // Módulos restritos a administradores/gerentes
@@ -39,6 +40,11 @@ export default function App() {
     loadFromDb();
     initCash();
     loadCustomers();
+
+    // Garante que a janela abre maximizada ocupando toda a tela
+    try {
+      getCurrentWindow().maximize().catch(() => {});
+    } catch (_) {}
 
     // Ativa o início automático com o Windows
     isEnabled().then((active) => {

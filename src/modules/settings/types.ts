@@ -22,6 +22,7 @@ export interface StoreSettings {
   phone: string;
   address: string;
   receiptFooterMessage: string;
+  printerName?: string;
   printerWidthMm: number; // 80 ou 58
   scaleBaudRate: number;  // 9600, 4800, etc.
   scalePort: string;      // COM1, COM3, etc.

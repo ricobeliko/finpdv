@@ -15,6 +15,8 @@ import { SwitchUserDecisionModal, UserSelectModal } from './shared/components/Sw
 import { CloseCashBlindModal, CashClosingReportModal } from './modules/cash/components/CashModals';
 import { CashClosingSummary } from './modules/cash/types';
 
+import { useCustomerStore } from './modules/customers/customerStore';
+
 // Módulos restritos a administradores/gerentes
 const ADMIN_ONLY_MODULES: ModuleType[] = ['SETTINGS', 'USERS', 'REPORTS', 'PURCHASES', 'PRODUCTS'];
 
@@ -23,6 +25,7 @@ export default function App() {
   const { loadFromDb } = useProductStore();
   const { currentSession, initCash, closeSession } = useCashStore();
   const { currentUser, switchUser } = useUserStore();
+  const { loadFromDb: loadCustomers } = useCustomerStore();
 
   // Estados dos Modais de Troca
   const [showDecisionModal, setShowDecisionModal] = useState(false);
@@ -33,6 +36,7 @@ export default function App() {
   useEffect(() => {
     loadFromDb();
     initCash();
+    loadCustomers();
   }, []);
 
   // REDIRECIONA AUTOMATICAMENTE CASO O OPERADOR NÃO TENHA PERMISSÃO NA ABA ATUAL

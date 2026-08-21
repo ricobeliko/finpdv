@@ -1,12 +1,15 @@
 import { create } from 'zustand';
+import { CashClosingSummary } from './types';
 import { 
   getCashSessionsDb, 
   saveCashSessionDb, 
   getCashMovementsDb, 
   saveCashMovementDb,
   updateCashMovementDb,
-  cancelSaleDb
+  cancelSaleDb,
+  getSaleItemsDb
 } from '../../core/database/db';
+import { useProductStore } from '../products/productStore';
 
 export interface CashSession {
   id: string;
@@ -45,7 +48,7 @@ interface CashState {
   movements: CashMovement[];
   initCash: (defaultUserId?: string, defaultUserName?: string) => Promise<void>;
   openSession: (initialCents: number, userId: string, userName: string) => Promise<void>;
-  closeSession: (finalCents: number, notes?: string) => Promise<void>;
+  closeSession: (finalCents: number, notes?: string) => Promise<CashClosingSummary | null>;
   addMovement: (type: 'SALE' | 'SUPPLEMENT' | 'BLEED' | 'REFUND' | string, amountCents: number, reason: string, customId?: string) => Promise<void>;
   refundMovement: (movement: CashMovement, reasonText?: string) => Promise<void>;
   getExpectedDrawerCents: () => number;
@@ -243,7 +246,7 @@ export const useCashStore = create<CashState>((set, get) => ({
 
   closeSession: async (finalCents, notes = '') => {
     const current = get().currentSession;
-    if (!current) return;
+    if (!current) return null;
 
     const expected = get().getExpectedDrawerCents();
     const differenceCents = finalCents - expected;
@@ -262,6 +265,22 @@ export const useCashStore = create<CashState>((set, get) => ({
       currentSession: null,
       sessions: state.sessions.map(s => s.id === closed.id ? closed : s)
     }));
+
+    const summary: CashClosingSummary = {
+      sessionId: closed.id,
+      openedAt: closed.openedAt,
+      closedAt: closed.closedAt || '',
+      userName: closed.userName,
+      initialAmountCents: closed.initialCents ?? closed.initialAmountCents ?? 0,
+      salesCashCents: closed.totalSalesCents ?? closed.salesCashCents ?? 0,
+      suppliesCents: closed.totalSupplementsCents ?? closed.suppliesCents ?? 0,
+      withdrawsCents: closed.totalBleedsCents ?? closed.withdrawsCents ?? 0,
+      expectedDrawerCents: expected,
+      countedCents: finalCents,
+      differenceCents: differenceCents
+    };
+
+    return summary;
   },
 
   addMovement: async (type, amountCents, reason, customId) => {
@@ -332,6 +351,10 @@ export const useCashStore = create<CashState>((set, get) => ({
     if (match && match[1]) {
       const saleId = match[1];
       try {
+        const saleItems = await getSaleItemsDb(saleId);
+        if (saleItems && saleItems.length > 0) {
+          await useProductStore.getState().returnStockFromRefund(saleItems, saleId);
+        }
         await cancelSaleDb(saleId);
       } catch (err) {
         console.warn('Venda não localizada para exclusão:', err);

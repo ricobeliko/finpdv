@@ -16,10 +16,11 @@ import {
   FileUp
 } from 'lucide-react';
 import { useProductStore } from './productStore';
-import { MovementType, Product } from './types';
+import { MovementType, Product, Category } from './types';
 import { ProductFormModal } from './components/ProductFormModal';
 import { StockAdjustmentModal } from './components/StockAdjustmentModal';
 import { CategoryModal } from './components/CategoryModal';
+import { saveCategoryDb } from '../../core/database/db';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -519,10 +520,16 @@ export function ProductsPage() {
       <CategoryModal
         isOpen={isCategoryModalOpen}
         onClose={() => setIsCategoryModalOpen(false)}
-        onSave={(name) => {
+        onSave={async (name) => {
+          const newCat: Category = { id: `cat-${Date.now()}`, name };
           useProductStore.setState(state => ({
-            categories: [...state.categories, { id: `cat-${Date.now()}`, name }]
+            categories: [...state.categories, newCat]
           }));
+          try {
+            await saveCategoryDb(newCat);
+          } catch (e) {
+            console.error('Erro ao salvar categoria no banco:', e);
+          }
           setIsCategoryModalOpen(false);
         }}
       />

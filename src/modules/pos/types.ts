@@ -17,12 +17,9 @@ export interface CartItem {
   isWeighable: boolean;
 }
 
-export interface Customer {
-  id: string;
-  name: string;
-  doc: string;
-  phone: string;
-}
+import { Customer } from '../customers/types';
+
+export { type Customer } from '../customers/types';
 
 export interface PaymentEntry {
   method: PaymentMethod;

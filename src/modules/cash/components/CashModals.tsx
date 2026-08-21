@@ -301,7 +301,7 @@ export function CashClosingReportModal({
         {/* CUPOM DE CONFERÊNCIA */}
         <div className="p-6 bg-slate-50 font-mono text-xs text-slate-800 space-y-3 overflow-y-auto flex-1 border-b border-dashed border-slate-300">
           <div className="text-center pb-2 border-b border-dashed border-slate-300">
-            <p className="font-bold text-sm font-sans">MERCADO POS</p>
+            <p className="font-bold text-sm font-sans">MERCEARIA UBER</p>
             <p className="text-[10px] text-textMuted">CONFERÊNCIA DE FECHAMENTO DE CAIXA</p>
           </div>
 

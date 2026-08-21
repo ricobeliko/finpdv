@@ -29,6 +29,7 @@ export interface User {
   id: string;
   name: string;
   username: string;
+  pin?: string;
   roleId: RoleId;
   roleName: string;
   isActive: boolean;

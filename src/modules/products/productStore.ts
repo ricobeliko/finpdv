@@ -5,7 +5,9 @@ import {
   saveProductToDb, 
   updateStockDb, 
   insertMovementDb, 
-  importNexCsv 
+  importNexCsv,
+  loadCategoriesDb,
+  saveCategoryDb
 } from '../../core/database/db';
 import { useUserStore } from '../users/userStore';
 
@@ -37,8 +39,14 @@ export const useProductStore = create<ProductState>((set, get) => ({
   loadFromDb: async () => {
     set({ isLoading: true });
     try {
-      const dbProducts = await loadProductsFromDb();
-      set({ products: dbProducts || [] });
+      const [dbProducts, dbCategories] = await Promise.all([
+        loadProductsFromDb(),
+        loadCategoriesDb()
+      ]);
+      set({ 
+        products: dbProducts || [],
+        categories: (dbCategories && dbCategories.length > 0) ? dbCategories : get().categories
+      });
     } catch (err) {
       console.warn('Erro ao carregar catálogo do SQLite:', err);
       set({ products: [] });

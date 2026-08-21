@@ -26,6 +26,7 @@ export interface Product {
   maxStock: number;
   currentStock: number;
   isWeighable: boolean;
+  isOpenPrice?: boolean;
   isActive: boolean;
 }
 

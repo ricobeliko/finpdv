@@ -18,9 +18,10 @@ interface SettingsState {
 }
 
 const defaultSettings: StoreSettings = {
-  companyName: 'Mercado & Mercearia Modelo LTDA',
-  tradeName: 'Mercado Modelo',
+  companyName: 'Mercearia Uber',
+  tradeName: 'Mercearia Uber',
   cnpj: '12.345.678/0001-90',
+  stateRegistration: '123.456.789.000',
   phone: '(11) 98765-4321',
   address: 'Rua do Comércio, 123 - Centro',
   receiptFooterMessage: 'Obrigado pela preferência! Volte sempre.',
@@ -28,6 +29,7 @@ const defaultSettings: StoreSettings = {
   printerWidthMm: 80,
   scalePort: 'COM3',
   scaleBaudRate: 9600,
+  autoBackupDaily: true,
 };
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -45,11 +47,18 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   createBackup: (type = 'MANUAL') => {
     const newBackup: BackupRecord = {
       id: `bkp-${Date.now()}`,
-      filename: `backup_mercado_${new Date().toISOString().replace(/[:.]/g, '-')}.db`,
+      filename: `backup_mercearia_uber_${new Date().toISOString().replace(/[:.]/g, '-')}.db`,
       createdAt: new Date().toLocaleString('pt-BR'),
       sizeBytes: 1024 * 150,
       type,
       checksum: `sha256-${Math.random().toString(36).substring(2, 10)}`,
+      status: 'VALID',
+      recordsCount: {
+        products: 0,
+        sales: 0,
+        cashMovements: 0,
+        customers: 0
+      }
     };
 
     set((state) => ({
@@ -75,6 +84,13 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       sizeBytes: 1024 * 200,
       type: 'MANUAL',
       checksum: `sha256-imported-${Math.random().toString(36).substring(2, 8)}`,
+      status: 'VALID',
+      recordsCount: {
+        products: 0,
+        sales: 0,
+        cashMovements: 0,
+        customers: 0
+      }
     };
     set((state) => ({
       backups: [imported, ...state.backups],

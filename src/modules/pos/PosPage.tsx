@@ -12,7 +12,7 @@ import {
   Lock,
   KeyRound
 } from 'lucide-react';
-import { Product } from '../products/types';
+import { Product, UnitMeasure } from '../products/types';
 import { CartItem, CompletedSale, Customer, SuspendedSale } from './types';
 import { useCashStore } from '../cash/cashStore';
 import { useCustomerStore } from '../customers/customerStore';
@@ -234,7 +234,7 @@ export function PosPage() {
     barcode: string;
     retailPriceCents: number;
     costPriceCents: number;
-    unitMeasure: string;
+    unitMeasure: UnitMeasure | string;
   }) => {
     const qty = pendingQuickRegister?.quantity || 1;
     const newId = `prod-${Date.now()}`;
@@ -244,7 +244,7 @@ export function PosPage() {
       internalCode: productData.internalCode,
       name: productData.name,
       categoryId: 'cat-1',
-      unitMeasure: productData.unitMeasure,
+      unitMeasure: (productData.unitMeasure as UnitMeasure) || 'UN',
       barcodes: [productData.barcode],
       costPriceCents: productData.costPriceCents,
       retailPriceCents: productData.retailPriceCents,

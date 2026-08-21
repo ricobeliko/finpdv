@@ -494,7 +494,9 @@ export function CustomerModal({
 }) {
   const [term, setTerm] = useState('');
   const filtered = customers.filter(c =>
-    c.name.toLowerCase().includes(term.toLowerCase()) || (c.doc && c.doc.includes(term))
+    c.name.toLowerCase().includes(term.toLowerCase()) || 
+    (c.document && c.document.includes(term)) ||
+    (c.phone && c.phone.includes(term))
   );
 
   return (
@@ -524,7 +526,7 @@ export function CustomerModal({
             <div key={c.id} className="p-3 hover:bg-slate-50 flex items-center justify-between">
               <div>
                 <p className="font-bold text-xs text-textMain">{c.name}</p>
-                <p className="text-[10px] text-textMuted font-mono">Doc: {c.doc || 'Não informado'}</p>
+                <p className="text-[10px] text-textMuted font-mono">Doc: {c.document || 'Não informado'}</p>
               </div>
               <button
                 onClick={() => onSelectCustomer(c)}
@@ -752,7 +754,7 @@ export function ReceiptModal({
         {/* PRÉVIA DO CUPOM FORMATADO */}
         <div className="p-5 bg-amber-50/20 font-mono text-[11px] text-slate-800 space-y-2.5 overflow-y-auto flex-1 border-b border-dashed border-slate-300">
           <div className="text-center pb-2 border-b border-dashed border-slate-300">
-            <p className="font-black text-xs">MERCADO POS</p>
+            <p className="font-black text-xs">MERCEARIA UBER</p>
             <p className="text-[9px]">DOCUMENTO AUXILIAR DE VENDA</p>
             <p className="text-[9px] text-slate-500">SEM VALOR FISCAL</p>
           </div>

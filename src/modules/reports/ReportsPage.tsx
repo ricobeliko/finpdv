@@ -153,6 +153,33 @@ export function ReportsPage() {
     });
   }, [closedSessions, selectedYear, selectedMonth]);
 
+  // VENDAS FILTRADAS PELO ANO E MÊS ATIVOS
+  const filteredSales = useMemo(() => {
+    return salesList.filter(s => {
+      const d = parseDateSafe(s.created_at || s.date);
+      const y = String(d.getFullYear());
+      const mNum = String(d.getMonth() + 1).padStart(2, '0');
+      const y_m = `${y}-${mNum}`;
+
+      if (selectedYear !== 'ALL' && y !== selectedYear) return false;
+      if (selectedMonth !== 'ALL') {
+        if (selectedYear === 'ALL') {
+          if (y_m !== selectedMonth) return false;
+        } else {
+          if (mNum !== selectedMonth) return false;
+        }
+      }
+      return true;
+    });
+  }, [salesList, selectedYear, selectedMonth]);
+
+  const salesSummary = useMemo(() => {
+    const totalCents = filteredSales.reduce((sum, s) => sum + (s.total_cents || 0), 0);
+    const count = filteredSales.length;
+    const avgTicketCents = count > 0 ? Math.round(totalCents / count) : 0;
+    return { totalCents, count, avgTicketCents };
+  }, [filteredSales]);
+
   // 4. TOTAL E MÉDIA DIÁRIA DOS DIAS COM VENDA
   const { selectedTotalCents, selectedDailyAvgCents, activeDaysCount } = useMemo(() => {
     const total = filteredSessions.reduce((acc, s) => acc + (s.salesCashCents || 0), 0);
@@ -390,9 +417,25 @@ export function ReportsPage() {
       {/* ABA: DESEMPENHO DE VENDAS */}
       {activeTab === 'SALES' && (
         <div className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col p-5">
-          <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">
-            VENDAS CONCLUÍDAS
-          </h2>
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+            <div>
+              <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                VENDAS CONCLUÍDAS
+              </h2>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Exibindo {filteredSales.length} {filteredSales.length === 1 ? 'venda' : 'vendas'} {selectedYear !== 'ALL' ? `de ${selectedYear}` : 'de todo o histórico'}
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 border border-slate-200 px-3 py-1 rounded-lg">
+                Ticket Médio: {formatBRL(salesSummary.avgTicketCents)}
+              </span>
+              <span className="text-xs font-mono font-bold text-primary bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-lg">
+                Total do Período: {formatBRL(salesSummary.totalCents)}
+              </span>
+            </div>
+          </div>
 
           <div className="overflow-y-auto flex-1">
             <table className="w-full text-left text-xs border-collapse">
@@ -408,14 +451,14 @@ export function ReportsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
-                {salesList.length === 0 ? (
+                {filteredSales.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="text-center py-12 text-slate-400 font-sans text-xs">
-                      Nenhuma venda registrada.
+                      Nenhuma venda registrada para o período selecionado.
                     </td>
                   </tr>
                 ) : (
-                  salesList.map((s) => (
+                  filteredSales.map((s) => (
                     <tr key={s.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-2 font-bold text-slate-800">#{s.id}</td>
                       <td className="py-3 px-2 text-slate-500 text-[11px]">{s.created_at}</td>

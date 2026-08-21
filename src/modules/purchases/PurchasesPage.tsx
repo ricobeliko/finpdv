@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Building2, 
   Receipt, 
@@ -12,6 +12,7 @@ import { PurchaseOrder, Supplier } from './types';
 import { SupplierFormModal } from './components/SupplierFormModal';
 import { NewPurchaseModal } from './components/NewPurchaseModal';
 import { useProductStore } from '../products/productStore';
+import { loadSuppliersDb, saveSupplierDb, loadPurchasesDb, savePurchaseDb } from '../../core/database/db';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -32,11 +33,27 @@ export function PurchasesPage() {
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [selectedPurchase, setSelectedPurchase] = useState<PurchaseOrder | null>(null);
 
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [loadedSuppliers, loadedPurchases] = await Promise.all([
+          loadSuppliersDb(),
+          loadPurchasesDb()
+        ]);
+        setSuppliers(loadedSuppliers || []);
+        setPurchases(loadedPurchases || []);
+      } catch (err) {
+        console.error('Erro ao carregar compras e fornecedores:', err);
+      }
+    }
+    loadData();
+  }, []);
+
   // Total acumulado em compras
   const totalPurchasesVolume = purchases.reduce((sum, p) => sum + p.totalCents, 0);
 
   // SALVAR FORNECEDOR
-  const handleSaveSupplier = (data: Omit<Supplier, 'id' | 'createdAt'>) => {
+  const handleSaveSupplier = async (data: Omit<Supplier, 'id' | 'createdAt'>) => {
     const newSupplier: Supplier = {
       id: `sup-${Date.now()}`,
       ...data,
@@ -44,6 +61,12 @@ export function PurchasesPage() {
     };
     setSuppliers(prev => [newSupplier, ...prev]);
     setIsSupplierModalOpen(false);
+
+    try {
+      await saveSupplierDb(newSupplier);
+    } catch (err) {
+      console.error('Erro ao persistir fornecedor:', err);
+    }
   };
 
   // CONFIRMAR ENTRADA DE COMPRA
@@ -73,6 +96,12 @@ export function PurchasesPage() {
 
     // 1. Grava no histórico de ordens de compra
     setPurchases(prev => [newOrder, ...prev]);
+
+    try {
+      await savePurchaseDb(newOrder);
+    } catch (err) {
+      console.error('Erro ao salvar compra no SQLite:', err);
+    }
 
     // 2. Atualiza estoque no banco de dados e na memória
     for (const item of data.items) {

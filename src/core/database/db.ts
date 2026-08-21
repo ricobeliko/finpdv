@@ -1,6 +1,8 @@
 import Database from '@tauri-apps/plugin-sql';
-import { Product, InventoryMovement } from '../../modules/products/types';
+import { Product, Category, InventoryMovement } from '../../modules/products/types';
 import { CashSession, CashMovement, CashClosingSummary } from '../../modules/cash/types';
+import { Customer } from '../../modules/customers/types';
+import { Supplier, Purchase, PurchaseItem } from '../../modules/purchases/types';
 
 let dbInstance: Database | null = null;
 
@@ -23,6 +25,18 @@ async function initTables(db: Database) {
       name TEXT NOT NULL UNIQUE
     );
   `);
+
+  try {
+    const catCount = await db.select<any[]>('SELECT count(*) as count FROM categories');
+    if (!catCount || catCount.length === 0 || catCount[0]?.count === 0) {
+      await db.execute(`INSERT OR IGNORE INTO categories (id, name) VALUES 
+        ('cat-1', 'Mercearia & Grãos'),
+        ('cat-2', 'Bebidas'),
+        ('cat-3', 'Hortifrúti'),
+        ('cat-4', 'Limpeza & Higiene')
+      `);
+    }
+  } catch (_) {}
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS products (
@@ -141,6 +155,73 @@ async function initTables(db: Database) {
       user_name TEXT NOT NULL,
       notes TEXT,
       created_at TEXT NOT NULL
+    );
+  `);
+
+  // 5. CLIENTES
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS customers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      document TEXT,
+      phone TEXT,
+      address TEXT,
+      notes TEXT,
+      total_spent_cents INTEGER NOT NULL DEFAULT 0,
+      purchases_count INTEGER NOT NULL DEFAULT 0,
+      last_purchase_date TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  // 6. FORNECEDORES
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS suppliers (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      trade_name TEXT,
+      document TEXT NOT NULL,
+      phone TEXT,
+      contact_name TEXT,
+      email TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  // 7. COMPRAS / ENTRADAS
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS purchases (
+      id TEXT PRIMARY KEY,
+      order_number TEXT,
+      supplier_id TEXT NOT NULL,
+      supplier_name TEXT NOT NULL,
+      invoice_number TEXT,
+      total_cents INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      received_at TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  try {
+    await db.execute('ALTER TABLE purchases ADD COLUMN order_number TEXT;');
+    await db.execute('ALTER TABLE purchases ADD COLUMN received_at TEXT;');
+  } catch (_) {}
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS purchase_items (
+      id TEXT PRIMARY KEY,
+      purchase_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      product_name TEXT NOT NULL,
+      internal_code TEXT,
+      unit_measure TEXT NOT NULL DEFAULT 'UN',
+      quantity REAL NOT NULL,
+      unit_cost_cents INTEGER NOT NULL,
+      total_cost_cents INTEGER NOT NULL,
+      FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE
     );
   `);
 }
@@ -628,5 +709,258 @@ export async function resetDatabaseDb(): Promise<void> {
     try {
       await db.execute(`DELETE FROM ${table}`);
     } catch (_) {}
+  }
+}
+
+// ============================================================
+// CATEGORIAS
+// ============================================================
+
+export async function loadCategoriesDb(): Promise<Category[]> {
+  try {
+    const db = await getDb();
+    const rows = await db.select<Category[]>('SELECT id, name FROM categories ORDER BY name ASC');
+    return rows || [];
+  } catch (err) {
+    console.error('Erro ao carregar categorias do SQLite:', err);
+    return [];
+  }
+}
+
+export async function saveCategoryDb(category: Category): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO categories (id, name) VALUES ($1, $2)
+     ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
+    [category.id, category.name]
+  );
+}
+
+export async function deleteCategoryDb(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM categories WHERE id = $1', [id]);
+}
+
+// ============================================================
+// CLIENTES
+// ============================================================
+
+export async function loadCustomersDb(): Promise<Customer[]> {
+  try {
+    const db = await getDb();
+    const rows = await db.select<any[]>('SELECT * FROM customers ORDER BY name ASC');
+    return rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      document: r.document || '',
+      phone: r.phone || '',
+      address: r.address || '',
+      notes: r.notes || '',
+      totalSpentCents: r.total_spent_cents || 0,
+      purchasesCount: r.purchases_count || 0,
+      lastPurchaseDate: r.last_purchase_date || undefined,
+      isActive: r.is_active === 1,
+      createdAt: r.created_at
+    }));
+  } catch (err) {
+    console.error('Erro ao carregar clientes do SQLite:', err);
+    return [];
+  }
+}
+
+export async function saveCustomerDb(c: Customer): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO customers (id, name, document, phone, address, notes, total_spent_cents, purchases_count, last_purchase_date, is_active, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       document = excluded.document,
+       phone = excluded.phone,
+       address = excluded.address,
+       notes = excluded.notes,
+       total_spent_cents = excluded.total_spent_cents,
+       purchases_count = excluded.purchases_count,
+       last_purchase_date = excluded.last_purchase_date,
+       is_active = excluded.is_active`,
+    [
+      c.id,
+      c.name,
+      c.document,
+      c.phone,
+      c.address,
+      c.notes,
+      c.totalSpentCents || 0,
+      c.purchasesCount || 0,
+      c.lastPurchaseDate || null,
+      c.isActive ? 1 : 0,
+      c.createdAt || new Date().toLocaleDateString('pt-BR')
+    ]
+  );
+}
+
+export async function deleteCustomerDb(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM customers WHERE id = $1', [id]);
+}
+
+// ============================================================
+// FORNECEDORES
+// ============================================================
+
+export async function loadSuppliersDb(): Promise<Supplier[]> {
+  try {
+    const db = await getDb();
+    const rows = await db.select<any[]>('SELECT * FROM suppliers ORDER BY company_name ASC');
+    return rows.map(r => ({
+      id: r.id,
+      companyName: r.company_name,
+      tradeName: r.trade_name || '',
+      document: r.document || '',
+      phone: r.phone || '',
+      contactName: r.contact_name || '',
+      email: r.email || '',
+      createdAt: r.created_at
+    }));
+  } catch (err) {
+    console.error('Erro ao carregar fornecedores do SQLite:', err);
+    return [];
+  }
+}
+
+export async function saveSupplierDb(s: Supplier): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO suppliers (id, company_name, trade_name, document, phone, contact_name, email, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT(id) DO UPDATE SET
+       company_name = excluded.company_name,
+       trade_name = excluded.trade_name,
+       document = excluded.document,
+       phone = excluded.phone,
+       contact_name = excluded.contact_name,
+       email = excluded.email`,
+    [
+      s.id,
+      s.companyName,
+      s.tradeName,
+      s.document,
+      s.phone,
+      s.contactName,
+      s.email,
+      s.createdAt || new Date().toLocaleDateString('pt-BR')
+    ]
+  );
+}
+
+export async function deleteSupplierDb(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM suppliers WHERE id = $1', [id]);
+}
+
+// ============================================================
+// COMPRAS / ENTRADAS DE NOTAS
+// ============================================================
+
+export async function loadPurchasesDb(): Promise<Purchase[]> {
+  try {
+    const db = await getDb();
+    const purchasesRows = await db.select<any[]>('SELECT * FROM purchases ORDER BY created_at DESC');
+    const itemsRows = await db.select<any[]>('SELECT * FROM purchase_items');
+
+    return purchasesRows.map(p => {
+      const items: PurchaseItem[] = itemsRows
+        .filter(i => i.purchase_id === p.id)
+        .map(i => ({
+          id: i.id,
+          productId: i.product_id,
+          productName: i.product_name,
+          internalCode: i.internal_code || '',
+          unitMeasure: i.unit_measure,
+          quantity: i.quantity,
+          unitCostCents: i.unit_cost_cents,
+          totalCostCents: i.total_cost_cents
+        }));
+
+      return {
+        id: p.id,
+        orderNumber: p.order_number || `COMPRA-${p.id.slice(-4)}`,
+        supplierId: p.supplier_id,
+        supplierName: p.supplier_name,
+        invoiceNumber: p.invoice_number || '',
+        totalCents: p.total_cents,
+        status: p.status || 'RECEIVED',
+        receivedAt: p.received_at || p.created_at || new Date().toLocaleString('pt-BR'),
+        notes: p.notes || '',
+        items
+      };
+    });
+  } catch (err) {
+    console.error('Erro ao carregar compras do SQLite:', err);
+    return [];
+  }
+}
+
+export async function savePurchaseDb(p: Purchase): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO purchases (id, order_number, supplier_id, supplier_name, invoice_number, total_cents, status, received_at, notes, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ON CONFLICT(id) DO UPDATE SET
+       order_number = excluded.order_number,
+       supplier_id = excluded.supplier_id,
+       supplier_name = excluded.supplier_name,
+       invoice_number = excluded.invoice_number,
+       total_cents = excluded.total_cents,
+       status = excluded.status,
+       received_at = excluded.received_at,
+       notes = excluded.notes`,
+    [
+      p.id,
+      p.orderNumber || `COMPRA-${p.id.slice(-4)}`,
+      p.supplierId,
+      p.supplierName,
+      p.invoiceNumber || '',
+      p.totalCents,
+      p.status,
+      p.receivedAt || new Date().toLocaleString('pt-BR'),
+      p.notes || '',
+      p.receivedAt || new Date().toLocaleString('pt-BR')
+    ]
+  );
+
+  if (p.items && p.items.length > 0) {
+    for (const item of p.items) {
+      await db.execute(
+        `INSERT INTO purchase_items (id, purchase_id, product_id, product_name, internal_code, unit_measure, quantity, unit_cost_cents, total_cost_cents)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT(id) DO UPDATE SET
+           quantity = excluded.quantity,
+           unit_cost_cents = excluded.unit_cost_cents,
+           total_cost_cents = excluded.total_cost_cents`,
+        [
+          item.id || `pi-${Date.now()}-${Math.random()}`,
+          p.id,
+          item.productId,
+          item.productName,
+          item.internalCode || '',
+          item.unitMeasure || 'UN',
+          item.quantity,
+          item.unitCostCents,
+          item.totalCostCents
+        ]
+      );
+    }
+  }
+}
+
+export async function getSaleItemsDb(saleId: string): Promise<Array<{ productId: string; quantity: number }>> {
+  try {
+    const db = await getDb();
+    const rows = await db.select<any[]>(`SELECT product_id as productId, quantity FROM sale_items WHERE sale_id = $1`, [saleId]);
+    return rows || [];
+  } catch (err) {
+    console.error('Erro ao buscar itens da venda para estorno:', err);
+    return [];
   }
 }

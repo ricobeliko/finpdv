@@ -34,3 +34,5 @@ export interface PurchaseOrder {
   invoiceNumber?: string; // Número NF-e / Cupom
   notes?: string;
 }
+
+export type Purchase = PurchaseOrder;

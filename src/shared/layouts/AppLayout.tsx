@@ -53,7 +53,7 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
             <ShoppingCart className="w-5 h-5 text-highlight" />
           </div>
           <div>
-            <h1 className="font-bold text-base leading-none tracking-wide">MERCADO POS</h1>
+            <h1 className="font-bold text-base leading-none tracking-wide">MERCEARIA UBER</h1>
             <p className="text-[11px] text-white/70 mt-0.5">Sistema de Gestão Comercial e PDV</p>
           </div>
         </div>

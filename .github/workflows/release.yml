@@ -34,11 +34,20 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Prepare Signing Key
+        shell: node {0}
+        run: |
+          const fs = require('fs');
+          const raw = process.env.RAW_KEY || '';
+          const cleaned = raw.trim().replace(/[\r\n\s]+/g, '');
+          fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${cleaned}\n`, { encoding: 'utf-8' });
+        env:
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
       - name: Build Tauri App & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}

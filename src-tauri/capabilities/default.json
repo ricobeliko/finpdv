@@ -9,6 +9,8 @@
     "sql:default",
     "sql:allow-load",
     "sql:allow-execute",
-    "autostart:default"
+    "autostart:default",
+    "updater:default",
+    "process:default"
   ]
 }

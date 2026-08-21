@@ -38,6 +38,10 @@ Thumbs.db
 
 .idea/
 
+# Chaves do Updater
+src-tauri/updater_key
+*.key
+
 # Temporários
 *.tmp
 *.temp

@@ -22,12 +22,15 @@ import {
   FolderKanban,
   FileUp,
   Skull,
-  Trash2
+  Trash2,
+  RefreshCw,
+  CloudDownload
 } from 'lucide-react';
 import { useSettingsStore } from './settingsStore';
 import { BackupRecord } from './types';
 import { RestoreConfirmModal } from './components/RestoreConfirmModal';
 import { getInstalledPrinters, testPrinter, triggerDrawer } from '../../core/hardware/printer';
+import { checkForAppUpdates, installAndRestartApp, UpdateStatus } from '../../core/updater/updaterService';
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 Bytes';
@@ -60,6 +63,29 @@ export function SettingsPage() {
 
   // Estado para o modal de zerar dados
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+
+  // Estado do Auto-Updater
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'IDLE' });
+
+  const handleCheckUpdates = async () => {
+    await checkForAppUpdates((status) => {
+      setUpdateStatus(status);
+      if (status.state === 'UP_TO_DATE') {
+        showToast('Você já está utilizando a versão mais recente!');
+      } else if (status.state === 'ERROR') {
+        showToast(status.error || 'Erro ao checar atualizações.');
+      }
+    });
+  };
+
+  const handleInstallUpdate = async () => {
+    await installAndRestartApp((status) => {
+      setUpdateStatus(status);
+      if (status.state === 'ERROR') {
+        showToast(status.error || 'Falha ao instalar atualização.');
+      }
+    });
+  };
 
   // Carrega autostart e lista de impressoras do Windows
   useEffect(() => {
@@ -562,6 +588,102 @@ export function SettingsPage() {
               </button>
             </div>
           </form>
+
+          {/* ATUALIZAÇÕES REMOTAS (AUTO-UPDATER) */}
+          <div className="bg-surface rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-base text-textMain flex items-center space-x-2">
+                  <CloudDownload className="w-5 h-5 text-primary" />
+                  <span>Atualizações Globais do Sistema</span>
+                </h3>
+                <p className="text-xs text-textMuted mt-0.5">
+                  Versão atual instalada: <strong className="font-mono text-slate-800">v0.1.0</strong>
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={updateStatus.state === 'CHECKING' || updateStatus.state === 'DOWNLOADING'}
+                onClick={handleCheckUpdates}
+                className="bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${updateStatus.state === 'CHECKING' ? 'animate-spin' : ''}`} />
+                <span>{updateStatus.state === 'CHECKING' ? 'Buscando...' : 'Verificar Atualizações'}</span>
+              </button>
+            </div>
+
+            {/* STATUS DO AUTO-UPDATER */}
+            {updateStatus.state === 'AVAILABLE' && (
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl space-y-3 animate-fade-in">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-emerald-900 flex items-center space-x-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Nova versão disponível: <strong>v{updateStatus.version}</strong></span>
+                    </span>
+                    {updateStatus.body && (
+                      <p className="text-xs text-slate-700 mt-1 whitespace-pre-wrap">{updateStatus.body}</p>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleInstallUpdate}
+                  className="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-md"
+                >
+                  <CloudDownload className="w-4 h-4" />
+                  <span>Baixar e Atualizar Agora</span>
+                </button>
+              </div>
+            )}
+
+            {updateStatus.state === 'DOWNLOADING' && (
+              <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl space-y-2 animate-fade-in">
+                <div className="flex justify-between text-xs font-bold text-blue-900">
+                  <span>Baixando atualização v{updateStatus.version}...</span>
+                  {updateStatus.totalBytes ? (
+                    <span className="font-mono">
+                      {Math.round(((updateStatus.downloadedBytes || 0) / updateStatus.totalBytes) * 100)}%
+                    </span>
+                  ) : (
+                    <span>Aguarde...</span>
+                  )}
+                </div>
+                <div className="w-full bg-blue-200 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-primary h-2 rounded-full transition-all duration-300"
+                    style={{ 
+                      width: updateStatus.totalBytes 
+                        ? `${Math.min(100, Math.round(((updateStatus.downloadedBytes || 0) / updateStatus.totalBytes) * 100))}%`
+                        : '60%'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {updateStatus.state === 'DOWNLOADED' && (
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-xs text-emerald-900 font-bold flex items-center space-x-2 animate-fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Atualização pronta! O aplicativo será reiniciado em instantes...</span>
+              </div>
+            )}
+
+            {updateStatus.state === 'UP_TO_DATE' && (
+              <p className="text-xs text-emerald-700 font-medium flex items-center space-x-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Você está utilizando a versão mais recente da Mercearia Uber.</span>
+              </p>
+            )}
+
+            {updateStatus.state === 'ERROR' && (
+              <p className="text-xs text-red-600 font-medium">
+                {updateStatus.error}
+              </p>
+            )}
+          </div>
 
           {/* ZONA DE PERIGO - ZERAR DADOS */}
           <div className="bg-red-50 p-4 rounded-xl border-2 border-dashed border-red-300 space-y-3">

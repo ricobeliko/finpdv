@@ -38,17 +38,17 @@ jobs:
         shell: node {0}
         run: |
           const fs = require('fs');
-          const raw = process.env.RAW_KEY || '';
-          const cleaned = raw.trim().replace(/[\r\n\s]+/g, '');
-          fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${cleaned}\n`, { encoding: 'utf-8' });
+          const rawKey = (process.env.RAW_KEY || '').trim().replace(/[\r\n\s]+/g, '');
+          const rawPass = (process.env.RAW_PASS || '').trim().replace(/[\r\n]+/g, '');
+          fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${rawKey}\nTAURI_SIGNING_PRIVATE_KEY_PASSWORD=${rawPass}\n`, { encoding: 'utf-8' });
         env:
           RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_PASS: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Build Tauri App & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Mercearia Uber ${{ github.ref_name }}'

@@ -16,6 +16,7 @@ import {
   X
 } from 'lucide-react';
 import { useUserStore } from '../../modules/users/userStore';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export type ModuleType = 'POS' | 'PRODUCTS' | 'CASH' | 'PURCHASES' | 'CUSTOMERS' | 'REPORTS' | 'USERS' | 'SETTINGS';
 
@@ -38,23 +39,26 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
 
   const handleMinimize = async () => {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().minimize();
-    } catch (_) {}
+    } catch (err) {
+      console.warn('Minimize error:', err);
+    }
   };
 
   const handleToggleMaximize = async () => {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().toggleMaximize();
-    } catch (_) {}
+    } catch (err) {
+      console.warn('ToggleMaximize error:', err);
+    }
   };
 
   const handleClose = async () => {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().close();
-    } catch (_) {}
+    } catch (err) {
+      console.warn('Close error:', err);
+    }
   };
 
   // Todas as abas liberadas para o Administrador
@@ -107,30 +111,33 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
           </div>
 
           {/* CONTROLES NATIVOS DE JANELA (SEM BORDAS) */}
-          <div className="flex items-center space-x-1 pl-2 border-l border-white/20">
+          <div data-tauri-drag-region="false" className="flex items-center space-x-1 pl-2 border-l border-white/20 z-50">
             <button
               type="button"
+              data-tauri-drag-region="false"
               onClick={handleMinimize}
               title="Minimizar"
-              className="w-8 h-8 rounded-lg hover:bg-white/20 flex items-center justify-center transition-colors text-white/80 hover:text-white"
+              className="w-8 h-8 rounded-lg hover:bg-white/20 active:bg-white/30 flex items-center justify-center transition-colors text-white/80 hover:text-white cursor-pointer"
             >
-              <Minus className="w-4 h-4" />
+              <Minus className="w-4 h-4 pointer-events-none" />
             </button>
             <button
               type="button"
+              data-tauri-drag-region="false"
               onClick={handleToggleMaximize}
               title="Maximizar / Restaurar"
-              className="w-8 h-8 rounded-lg hover:bg-white/20 flex items-center justify-center transition-colors text-white/80 hover:text-white"
+              className="w-8 h-8 rounded-lg hover:bg-white/20 active:bg-white/30 flex items-center justify-center transition-colors text-white/80 hover:text-white cursor-pointer"
             >
-              <Square className="w-3.5 h-3.5" />
+              <Square className="w-3.5 h-3.5 pointer-events-none" />
             </button>
             <button
               type="button"
+              data-tauri-drag-region="false"
               onClick={handleClose}
               title="Fechar Aplicação"
-              className="w-8 h-8 rounded-lg hover:bg-red-600 flex items-center justify-center transition-colors text-white/80 hover:text-white"
+              className="w-8 h-8 rounded-lg hover:bg-red-600 active:bg-red-700 flex items-center justify-center transition-colors text-white/80 hover:text-white cursor-pointer"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4 pointer-events-none" />
             </button>
           </div>
         </div>

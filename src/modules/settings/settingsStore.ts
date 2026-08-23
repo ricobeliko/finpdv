@@ -38,7 +38,6 @@ const defaultSettings: StoreSettings = {
   autoBackupDaily: true,
   autoBackupMonthly: true,
   backupEmail: '',
-  resendApiKey: '',
 };
 
 function triggerBrowserDownload(filename: string, content: string) {
@@ -242,7 +241,7 @@ export const useSettingsStore = create<SettingsState>()(
         try {
           const dump = await exportFullDatabaseDumpDb();
           const companyName = settings.tradeName || settings.companyName || 'Mercearia Uber';
-          return await sendBackupByEmail(targetEmail, companyName, dump, settings.resendApiKey);
+          return await sendBackupByEmail(targetEmail, companyName, dump);
         } catch (err: any) {
           console.error('Erro ao preparar envio de backup por e-mail:', err);
           return {

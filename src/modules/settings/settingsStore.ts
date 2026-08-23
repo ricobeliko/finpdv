@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { StoreSettings, BackupRecord } from './types';
 import { resetDatabaseDb, exportFullDatabaseDumpDb, restoreFullDatabaseDumpDb, FullDatabaseDump } from '../../core/database/db';
+import { sendBackupByEmail, EmailBackupResult } from '../../core/backup/emailBackupService';
 import { useProductStore } from '../products/productStore';
 import { useCashStore } from '../cash/cashStore';
 import { useCustomerStore } from '../customers/customerStore';
@@ -17,6 +18,7 @@ interface SettingsState {
   restoreBackup: (backupId: string) => Promise<boolean>;
   importBackupFromFile: (jsonString: string, filename?: string) => Promise<boolean>;
   importBackup: () => Promise<void>;
+  sendBackupEmail: (toEmailOverride?: string) => Promise<EmailBackupResult>;
   checkMonthlyAutoBackup: () => Promise<void>;
   resetAllData: () => Promise<void>;
 }
@@ -36,6 +38,7 @@ const defaultSettings: StoreSettings = {
   autoBackupDaily: true,
   autoBackupMonthly: true,
   backupEmail: '',
+  resendApiKey: '',
 };
 
 function triggerBrowserDownload(filename: string, content: string) {
@@ -225,6 +228,30 @@ export const useSettingsStore = create<SettingsState>()(
         input.click();
       },
 
+      sendBackupEmail: async (toEmailOverride?: string) => {
+        const { settings } = get();
+        const targetEmail = toEmailOverride || settings.backupEmail;
+
+        if (!targetEmail || !targetEmail.includes('@')) {
+          return {
+            success: false,
+            message: 'Cadastre um e-mail válido nas configurações para enviar o backup.'
+          };
+        }
+
+        try {
+          const dump = await exportFullDatabaseDumpDb();
+          const companyName = settings.tradeName || settings.companyName || 'Mercearia Uber';
+          return await sendBackupByEmail(targetEmail, companyName, dump, settings.resendApiKey);
+        } catch (err: any) {
+          console.error('Erro ao preparar envio de backup por e-mail:', err);
+          return {
+            success: false,
+            message: `Erro ao gerar dump para e-mail: ${err.message || err}`
+          };
+        }
+      },
+
       checkMonthlyAutoBackup: async () => {
         const { settings } = get();
         if (settings.autoBackupMonthly === false) return;
@@ -236,6 +263,11 @@ export const useSettingsStore = create<SettingsState>()(
           try {
             await get().createBackup('AUTOMATIC');
             localStorage.setItem('mercado_pos_last_monthly_backup', currentMonth);
+
+            // Dispara por e-mail silenciosamente se houver e-mail configurado
+            if (settings.backupEmail && settings.backupEmail.includes('@')) {
+              get().sendBackupEmail().catch((e) => console.warn('Erro envio e-mail mensal:', e));
+            }
           } catch (err) {
             console.warn('Erro no backup automático mensal:', err);
           }

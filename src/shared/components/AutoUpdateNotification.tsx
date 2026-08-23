@@ -1,6 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Download, RefreshCw, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Sparkles, Download, RefreshCw, X, CheckCircle2, AlertCircle, ArrowUpCircle } from 'lucide-react';
 import { checkForAppUpdates, installAndRestartApp, UpdateStatus } from '../../core/updater/updaterService';
+
+function parseReleaseHighlights(body?: string): string[] {
+  if (!body) {
+    return [
+      'Backup físico completo e salvaguarda por e-mail',
+      'Auditoria e histórico de estoque nas vendas',
+      'Livro Razão com produtos em destaque',
+      'Fechamento automático de caixa silencioso'
+    ];
+  }
+
+  const lines = body
+    .split(/[\r\n]+/)
+    .map((l) => l.trim().replace(/^[-*•]\s*/, '').replace(/^feat(\([^)]+\))?:\s*/i, '').replace(/^fix(\([^)]+\))?:\s*/i, ''))
+    .filter((l) => l.length > 4 && !l.toLowerCase().includes('atualização automática'));
+
+  if (lines.length === 0) {
+    return [
+      'Backup físico completo e salvaguarda por e-mail',
+      'Auditoria e histórico de estoque nas vendas',
+      'Livro Razão com produtos em destaque',
+      'Fechamento automático de caixa silencioso'
+    ];
+  }
+
+  return lines.slice(0, 4);
+}
 
 export function AutoUpdateNotification() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'IDLE' });
@@ -52,27 +79,28 @@ export function AutoUpdateNotification() {
 
   const downloadedMB = ((updateStatus.downloadedBytes || 0) / (1024 * 1024)).toFixed(1);
   const totalMB = ((updateStatus.totalBytes || 0) / (1024 * 1024)).toFixed(1);
+  const highlights = parseReleaseHighlights(updateStatus.body);
 
   return (
-    <aside aria-label="Notificação de Atualização" className="fixed bottom-6 right-6 z-50 max-w-md w-full animate-slide-up shadow-2xl rounded-2xl border border-emerald-500/30 bg-slate-900/95 backdrop-blur-md text-white p-5 select-none font-sans overflow-hidden">
+    <aside aria-label="Notificação de Atualização" className="fixed bottom-6 right-6 z-50 max-w-md w-full animate-slide-up shadow-2xl rounded-2xl border border-emerald-500/40 bg-slate-900/95 backdrop-blur-md text-white p-5 select-none font-sans overflow-hidden">
       {/* GLOW DECORATIVO DE FUNDO */}
-      <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/20 rounded-full blur-2xl pointer-events-none" />
+      <div className="absolute -top-12 -right-12 w-36 h-36 bg-emerald-500/25 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="relative z-10">
+      <div className="relative z-10 space-y-3.5">
         {/* CABEÇALHO */}
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-900/40 shrink-0">
-              <Sparkles className="w-5 h-5 text-white animate-pulse" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-950/60 shrink-0">
+              <ArrowUpCircle className="w-5 h-5 text-white animate-pulse" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">Atualização Disponível</span>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Nova Versão Disponível</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                   v{updateStatus.version}
                 </span>
               </div>
-              <h4 className="text-sm font-bold text-slate-100 mt-0.5">Nova versão pronta para instalar</h4>
+              <h4 className="text-sm font-bold text-slate-100 mt-0.5">Atualização Pronta para Instalar</h4>
             </div>
           </div>
 
@@ -87,17 +115,28 @@ export function AutoUpdateNotification() {
           )}
         </div>
 
-        {/* CORPO / DETALHES OU PROGRESSO */}
+        {/* CORPO: DESTAQUES DA VERSÃO */}
         {updateStatus.state === 'AVAILABLE' && (
-          <div className="mt-3.5">
-            <p className="text-xs text-slate-300 leading-relaxed">
-              {updateStatus.body || 'Uma nova versão com melhorias de estabilidade, recursos e desempenho já está disponível.'}
-            </p>
+          <div className="space-y-3">
+            <div className="bg-slate-800/80 border border-slate-700/60 rounded-xl p-3 space-y-1.5">
+              <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide flex items-center space-x-1">
+                <Sparkles className="w-3 h-3 text-emerald-400" />
+                <span>O que há de novo nesta versão:</span>
+              </p>
+              <ul className="space-y-1 text-xs text-slate-200">
+                {highlights.map((item, idx) => (
+                  <li key={idx} className="flex items-start space-x-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span className="leading-tight">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-            <div className="mt-4 flex items-center space-x-3">
+            <div className="flex items-center space-x-2 pt-1">
               <button
                 onClick={handleStartUpdate}
-                className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-900/50 flex items-center justify-center space-x-2 transition-all active:scale-95"
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs py-2.5 px-4 rounded-xl shadow-lg shadow-emerald-950/60 flex items-center justify-center space-x-2 transition-all active:scale-95"
               >
                 <Download className="w-4 h-4" />
                 <span>Atualizar e Reiniciar Agora</span>
@@ -115,13 +154,13 @@ export function AutoUpdateNotification() {
 
         {/* ESTADO: BAIXANDO */}
         {updateStatus.state === 'DOWNLOADING' && (
-          <div className="mt-3.5 space-y-2">
+          <div className="space-y-2 pt-1">
             <div className="flex justify-between text-xs font-semibold text-slate-300">
               <span className="flex items-center space-x-1.5">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                <span>Baixando atualização...</span>
+                <span>Baixando atualização com segurança...</span>
               </span>
-              <span className="font-mono text-emerald-400">{percent}%</span>
+              <span className="font-mono text-emerald-400 font-bold">{percent}%</span>
             </div>
 
             <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden border border-slate-700">
@@ -139,15 +178,15 @@ export function AutoUpdateNotification() {
 
         {/* ESTADO: PRONTO PARA REINICIAR */}
         {updateStatus.state === 'DOWNLOADED' && (
-          <div className="mt-3.5 flex items-center space-x-2 text-xs text-emerald-300 font-semibold bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-800">
+          <div className="flex items-center space-x-2 text-xs text-emerald-300 font-semibold bg-emerald-950/60 p-3 rounded-xl border border-emerald-800 animate-fade-in">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>Download finalizado com sucesso! Reiniciando a aplicação...</span>
+            <span>Download concluído! Reiniciando o sistema agora...</span>
           </div>
         )}
 
         {/* ESTADO: ERRO */}
         {updateStatus.state === 'ERROR' && (
-          <div className="mt-3.5 space-y-2">
+          <div className="space-y-2">
             <div className="flex items-center space-x-2 text-xs text-red-400 bg-red-950/50 p-2.5 rounded-xl border border-red-800">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{updateStatus.error || 'Falha ao atualizar.'}</span>

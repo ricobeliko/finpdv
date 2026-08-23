@@ -29,5 +29,6 @@ export interface StoreSettings {
   scalePort: string;      // COM1, COM3, etc.
   autoBackupDaily: boolean;
   backupEmail?: string;
+  resendApiKey?: string;
   autoBackupMonthly?: boolean;
 }

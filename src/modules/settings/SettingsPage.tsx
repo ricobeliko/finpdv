@@ -24,7 +24,10 @@ import {
   Skull,
   Trash2,
   RefreshCw,
-  CloudDownload
+  CloudDownload,
+  Mail,
+  Send,
+  Loader2
 } from 'lucide-react';
 import { useSettingsStore } from './settingsStore';
 import { BackupRecord } from './types';
@@ -49,7 +52,8 @@ export function SettingsPage() {
     updateSettings, 
     createBackup, 
     restoreBackup,
-    importBackup
+    importBackup,
+    sendBackupEmail
   } = useSettingsStore();
 
   const [activeTab, setActiveTab] = useState<'BACKUP' | 'STORE' | 'HARDWARE'>('HARDWARE');
@@ -60,6 +64,7 @@ export function SettingsPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [autostartActive, setAutostartActive] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
 
   // Estado para o modal de zerar dados
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
@@ -217,15 +222,28 @@ export function SettingsPage() {
     }
   };
 
-  const handleSendBackupEmail = () => {
+  const handleSendBackupEmail = async () => {
     if (!formData.backupEmail || !formData.backupEmail.includes('@')) {
       alert('Por favor, informe um endereço de e-mail válido nas configurações.');
       return;
     }
-    const subject = encodeURIComponent(`[Backup Mercado POS] - Cópia de Segurança ${new Date().toLocaleDateString('pt-BR')}`);
-    const body = encodeURIComponent(`Olá!\n\nSegue o registro de segurança do Mercado POS.\nData: ${new Date().toLocaleString('pt-BR')}\nEmpresa: ${formData.tradeName || formData.companyName}\n\nO arquivo físico de backup foi gerado e salvo na sua máquina.`);
-    window.open(`mailto:${formData.backupEmail}?subject=${subject}&body=${body}`);
-    showToast(`Cliente de e-mail aberto para ${formData.backupEmail}`);
+    setIsSendingEmail(true);
+    try {
+      updateSettings({ 
+        backupEmail: formData.backupEmail,
+        resendApiKey: formData.resendApiKey 
+      });
+      const res = await sendBackupEmail(formData.backupEmail);
+      if (res.success) {
+        showToast(res.message);
+      } else {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      alert(`Falha ao enviar backup por e-mail: ${err.message || err}`);
+    } finally {
+      setIsSendingEmail(false);
+    }
   };
 
   const handleOpenResetModal = () => {
@@ -467,7 +485,7 @@ export function SettingsPage() {
                 <span>Salvaguarda Externa & Envio Automático Mensal</span>
               </span>
               <p className="text-[11px] text-textMuted leading-tight">
-                Cadastre o e-mail do proprietário para envio de cópias de segurança fora da máquina. O sistema gera automaticamente um backup na virada de cada mês.
+                Cadastre o e-mail do proprietário para receber cópias de segurança anexadas. O sistema gera e envia automaticamente um backup na virada de cada mês.
               </p>
             </div>
 
@@ -482,7 +500,10 @@ export function SettingsPage() {
               <button
                 type="button"
                 onClick={() => {
-                  updateSettings({ backupEmail: formData.backupEmail });
+                  updateSettings({ 
+                    backupEmail: formData.backupEmail,
+                    resendApiKey: formData.resendApiKey 
+                  });
                   showToast('E-mail de salvaguarda salvo com sucesso!');
                 }}
                 className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0"
@@ -491,10 +512,21 @@ export function SettingsPage() {
               </button>
               <button
                 type="button"
+                disabled={isSendingEmail}
                 onClick={handleSendBackupEmail}
-                className="bg-primary hover:bg-primary-hover text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 transition-colors shrink-0 shadow-sm"
+                className="bg-primary hover:bg-primary-hover disabled:bg-slate-400 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors shrink-0 shadow-sm"
               >
-                <span>Disparar Cópia</span>
+                {isSendingEmail ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Enviando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Disparar Cópia</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -701,21 +733,41 @@ export function SettingsPage() {
             {updateStatus.state === 'AVAILABLE' && (
               <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl space-y-3 animate-fade-in">
                 <div className="flex items-start justify-between">
-                  <div>
+                  <div className="space-y-2">
                     <span className="text-xs font-bold text-emerald-900 flex items-center space-x-1.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>Nova versão disponível: <strong>v{updateStatus.version}</strong></span>
+                      <span>Nova versão disponível para instalação: <strong>v{updateStatus.version}</strong></span>
                     </span>
-                    {updateStatus.body && (
-                      <p className="text-xs text-slate-700 mt-1 whitespace-pre-wrap">{updateStatus.body}</p>
-                    )}
+                    <div className="bg-white/80 border border-emerald-100 rounded-lg p-2.5">
+                      <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1">
+                        Melhorias e Novidades:
+                      </p>
+                      <ul className="text-xs text-slate-700 space-y-1">
+                        <li className="flex items-center space-x-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Backup físico completo e salvaguarda por e-mail</span>
+                        </li>
+                        <li className="flex items-center space-x-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Auditoria e histórico de estoque em tempo real nas vendas</span>
+                        </li>
+                        <li className="flex items-center space-x-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Fechamento automático de caixa sem interrupção do PDV</span>
+                        </li>
+                        <li className="flex items-center space-x-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Modo Quiosque (Tela Cheia PDV) nativo</span>
+                        </li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={handleInstallUpdate}
-                  className="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-md"
+                  className="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-md transition-all active:scale-95"
                 >
                   <CloudDownload className="w-4 h-4" />
                   <span>Baixar e Atualizar Agora</span>

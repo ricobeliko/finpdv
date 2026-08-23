@@ -160,20 +160,31 @@ fn open_cash_drawer(printer_name: String) -> Result<(), String> {
     print_raw_escpos(printer_name, drawer_pulse)
 }
 
-// 4. DISPARO NATIVO DE E-MAIL (SEM BLOQUEIO DE CORS)
+// 4. DISPARO NATIVO DE E-MAIL COM CHAVE EMBUTIDA SEGURA (COMPILADA NO BINÁRIO)
+const EMBEDDED_RESEND_KEY: Option<&'static str> = option_env!("RESEND_API_KEY");
+
 #[tauri::command]
-fn send_resend_email(api_key: String, payload: String) -> Result<String, String> {
+fn send_resend_email(api_key: Option<String>, payload: String) -> Result<String, String> {
     #[cfg(windows)]
     {
         use std::process::Command;
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+        let key = api_key
+            .filter(|k| !k.trim().is_empty())
+            .or_else(|| EMBEDDED_RESEND_KEY.map(|s| s.to_string()))
+            .unwrap_or_default();
+
+        if key.is_empty() {
+            return Err("Chave de envio de e-mail não configurada no servidor.".to_string());
+        }
+
         let ps_script = format!(
             r#"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $headers = @{{ "Authorization" = "Bearer {}"; "Content-Type" = "application/json" }}; try {{ $res = Invoke-RestMethod -Uri "https://api.resend.com/emails" -Method Post -Headers $headers -Body @'
 {}
 '@; $res | ConvertTo-Json -Compress }} catch {{ Write-Error $_.Exception.Message; exit 1 }}"#,
-            api_key, payload
+            key, payload
         );
 
         let output = Command::new("powershell")

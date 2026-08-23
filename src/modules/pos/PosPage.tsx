@@ -30,6 +30,7 @@ import {
   QuickProductRegisterModal,
   ItemQuantityModal
 } from './components/PosModals';
+import { usePosStore } from './posStore';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -44,13 +45,22 @@ export function PosPage() {
   const { products, loadFromDb, saveProduct, deductStockFromSale } = useProductStore();
   const isCashOpen = !!currentSession?.isOpen;
 
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [selectedCartIndex, setSelectedCartIndex] = useState(0);
+  const {
+    cart,
+    setCart,
+    selectedCartIndex,
+    setSelectedCartIndex,
+    currentCustomer,
+    setCurrentCustomer,
+    generalDiscountCents,
+    setGeneralDiscountCents,
+    suspendedSales,
+    setSuspendedSales,
+    completedSale,
+    setCompletedSale
+  } = usePosStore();
+
   const [barcodeInput, setBarcodeInput] = useState('');
-  const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(null);
-  const [generalDiscountCents, setGeneralDiscountCents] = useState(0);
-  const [suspendedSales, setSuspendedSales] = useState<SuspendedSale[]>([]);
-  const [completedSale, setCompletedSale] = useState<CompletedSale | null>(null);
 
   // Estados de Modais
   const [pendingQuantityProduct, setPendingQuantityProduct] = useState<{ product: Product; defaultQty: number } | null>(null);
@@ -381,7 +391,11 @@ export function PosPage() {
       const netCashToDrawer = Math.max(0, totalCashPaidCents - (sale.changeCents || 0));
 
       if (netCashToDrawer > 0) {
-        await addMovement('SALE', netCashToDrawer, `Venda PDV Cupom #${sale.id}`, `mov-sale-${sale.id}`);
+        const itemsSummary = (sale.items || []).map(i => `${i.quantity}x ${i.name}`).join(', ');
+        const reasonText = itemsSummary 
+          ? `Venda PDV Cupom #${sale.id} • ${itemsSummary}` 
+          : `Venda PDV Cupom #${sale.id}`;
+        await addMovement('SALE', netCashToDrawer, reasonText, `mov-sale-${sale.id}`);
       }
 
       if (currentCustomer) {

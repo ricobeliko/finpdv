@@ -129,8 +129,10 @@ export const useCashStore = create<CashState>((set, get) => ({
 
         if (!isSameDay(active.openedAt)) {
           const expected = active.expectedCents || 0;
+          const uId = active.userId || defaultUserId;
+          const uName = active.userName || defaultUserName;
           await get().closeSession(expected, 'Fechamento Automático de Meia-Noite');
-          await get().openSession(0, defaultUserId, defaultUserName);
+          await get().openSession(0, uId, uName);
           return;
         }
       } else {
@@ -202,8 +204,10 @@ export const useCashStore = create<CashState>((set, get) => ({
           if (state.currentSession && state.currentSession.isOpen) {
             if (!isSameDay(state.currentSession.openedAt)) {
               const expected = state.getExpectedDrawerCents();
+              const uId = state.currentSession.userId || defaultUserId;
+              const uName = state.currentSession.userName || defaultUserName;
               await state.closeSession(expected, 'Fechamento Automático de Meia-Noite');
-              await state.openSession(0, defaultUserId, defaultUserName);
+              await state.openSession(0, uId, uName);
             }
           }
         }, 15000);

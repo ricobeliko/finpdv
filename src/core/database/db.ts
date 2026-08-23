@@ -964,3 +964,465 @@ export async function getSaleItemsDb(saleId: string): Promise<Array<{ productId:
     return [];
   }
 }
+
+export async function getSessionSaleItemsMapDb(sessionId?: string): Promise<Record<string, Array<{ name: string; quantity: number; totalCents: number }>>> {
+  try {
+    const db = await getDb();
+    const query = sessionId
+      ? `SELECT si.sale_id, si.product_name, si.quantity, si.total_cents, p.name as p_name
+         FROM sale_items si
+         JOIN sales s ON s.id = si.sale_id
+         LEFT JOIN products p ON p.id = si.product_id
+         WHERE s.session_id = $1`
+      : `SELECT si.sale_id, si.product_name, si.quantity, si.total_cents, p.name as p_name
+         FROM sale_items si
+         LEFT JOIN products p ON p.id = si.product_id`;
+    const params = sessionId ? [sessionId] : [];
+    const rows = await db.select<any[]>(query, params);
+
+    const map: Record<string, Array<{ name: string; quantity: number; totalCents: number }>> = {};
+    for (const r of rows) {
+      if (!map[r.sale_id]) map[r.sale_id] = [];
+      map[r.sale_id].push({
+        name: r.product_name || r.p_name || 'Produto',
+        quantity: r.quantity,
+        totalCents: r.total_cents
+      });
+    }
+    return map;
+  } catch (err) {
+    console.error('Erro ao buscar itens das vendas da sessão:', err);
+    return {};
+  }
+}
+
+// ============================================================
+// EXPORTAÇÃO E RESTAURAÇÃO COMPLETA DE BACKUP (FÍSICO & JSON)
+// ============================================================
+
+export interface FullDatabaseDump {
+  version: string;
+  exportedAt: string;
+  appName: string;
+  recordsCount: {
+    products: number;
+    categories: number;
+    sales: number;
+    saleItems: number;
+    cashSessions: number;
+    cashMovements: number;
+    inventoryMovements: number;
+    customers: number;
+    suppliers: number;
+    purchases: number;
+    purchaseItems: number;
+  };
+  data: {
+    categories: any[];
+    products: any[];
+    productBarcodes: any[];
+    productTierPrices: any[];
+    cashSessions: any[];
+    cashMovements: any[];
+    sales: any[];
+    saleItems: any[];
+    inventoryMovements: any[];
+    customers: any[];
+    suppliers: any[];
+    purchases: any[];
+    purchaseItems: any[];
+  };
+}
+
+export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
+  const db = await getDb();
+  
+  const [
+    categories,
+    products,
+    productBarcodes,
+    productTierPrices,
+    cashSessions,
+    cashMovements,
+    sales,
+    saleItems,
+    inventoryMovements,
+    customers,
+    suppliers,
+    purchases,
+    purchaseItems
+  ] = await Promise.all([
+    db.select<any[]>('SELECT * FROM categories').catch(() => []),
+    db.select<any[]>('SELECT * FROM products').catch(() => []),
+    db.select<any[]>('SELECT * FROM product_barcodes').catch(() => []),
+    db.select<any[]>('SELECT * FROM product_tier_prices').catch(() => []),
+    db.select<any[]>('SELECT * FROM cash_sessions').catch(() => []),
+    db.select<any[]>('SELECT * FROM cash_movements').catch(() => []),
+    db.select<any[]>('SELECT * FROM sales').catch(() => []),
+    db.select<any[]>('SELECT * FROM sale_items').catch(() => []),
+    db.select<any[]>('SELECT * FROM inventory_movements').catch(() => []),
+    db.select<any[]>('SELECT * FROM customers').catch(() => []),
+    db.select<any[]>('SELECT * FROM suppliers').catch(() => []),
+    db.select<any[]>('SELECT * FROM purchases').catch(() => []),
+    db.select<any[]>('SELECT * FROM purchase_items').catch(() => [])
+  ]);
+
+  return {
+    version: '1.0.0',
+    exportedAt: new Date().toLocaleString('pt-BR'),
+    appName: 'Mercearia Uber POS',
+    recordsCount: {
+      products: products.length,
+      categories: categories.length,
+      sales: sales.length,
+      saleItems: saleItems.length,
+      cashSessions: cashSessions.length,
+      cashMovements: cashMovements.length,
+      inventoryMovements: inventoryMovements.length,
+      customers: customers.length,
+      suppliers: suppliers.length,
+      purchases: purchases.length,
+      purchaseItems: purchaseItems.length
+    },
+    data: {
+      categories,
+      products,
+      productBarcodes,
+      productTierPrices,
+      cashSessions,
+      cashMovements,
+      sales,
+      saleItems,
+      inventoryMovements,
+      customers,
+      suppliers,
+      purchases,
+      purchaseItems
+    }
+  };
+}
+
+export async function restoreFullDatabaseDumpDb(dump: FullDatabaseDump): Promise<{ success: boolean; message: string }> {
+  if (!dump || !dump.data) {
+    throw new Error('Arquivo de backup inválido ou corrompido.');
+  }
+
+  const db = await getDb();
+  const d = dump.data;
+
+  // Restaura categorias
+  if (Array.isArray(d.categories)) {
+    for (const c of d.categories) {
+      await db.execute(
+        `INSERT INTO categories (id, name) VALUES ($1, $2)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
+        [c.id, c.name]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura produtos
+  if (Array.isArray(d.products)) {
+    for (const p of d.products) {
+      await db.execute(
+        `INSERT INTO products (id, internal_code, name, category_id, unit_measure, cost_price_cents, retail_price_cents, current_stock, min_stock, is_weighable, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT(id) DO UPDATE SET
+           internal_code = excluded.internal_code,
+           name = excluded.name,
+           category_id = excluded.category_id,
+           unit_measure = excluded.unit_measure,
+           cost_price_cents = excluded.cost_price_cents,
+           retail_price_cents = excluded.retail_price_cents,
+           current_stock = excluded.current_stock,
+           min_stock = excluded.min_stock,
+           is_weighable = excluded.is_weighable,
+           is_active = excluded.is_active`,
+        [
+          p.id,
+          p.internal_code,
+          p.name,
+          p.category_id || null,
+          p.unit_measure || 'UN',
+          p.cost_price_cents || 0,
+          p.retail_price_cents,
+          p.current_stock || 0,
+          p.min_stock || 0,
+          p.is_weighable ? 1 : 0,
+          p.is_active ? 1 : 0
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura códigos de barra
+  if (Array.isArray(d.productBarcodes)) {
+    for (const b of d.productBarcodes) {
+      await db.execute(
+        `INSERT INTO product_barcodes (id, product_id, barcode) VALUES ($1, $2, $3)
+         ON CONFLICT(id) DO NOTHING`,
+        [b.id, b.product_id, b.barcode]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura preços por faixa
+  if (Array.isArray(d.productTierPrices)) {
+    for (const t of d.productTierPrices) {
+      await db.execute(
+        `INSERT INTO product_tier_prices (id, product_id, min_quantity, price_cents) VALUES ($1, $2, $3, $4)
+         ON CONFLICT(id) DO NOTHING`,
+        [t.id, t.product_id, t.min_quantity, t.price_cents]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura sessões de caixa
+  if (Array.isArray(d.cashSessions)) {
+    for (const s of d.cashSessions) {
+      await db.execute(
+        `INSERT INTO cash_sessions (id, user_id, user_name, is_open, opened_at, closed_at, initial_amount_cents, sales_cash_cents, supplies_cents, withdraws_cents, expected_drawer_cents, counted_cents, difference_cents, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         ON CONFLICT(id) DO UPDATE SET
+           user_id = excluded.user_id,
+           user_name = excluded.user_name,
+           is_open = excluded.is_open,
+           opened_at = excluded.opened_at,
+           closed_at = excluded.closed_at,
+           initial_amount_cents = excluded.initial_amount_cents,
+           sales_cash_cents = excluded.sales_cash_cents,
+           supplies_cents = excluded.supplies_cents,
+           withdraws_cents = excluded.withdraws_cents,
+           expected_drawer_cents = excluded.expected_drawer_cents,
+           counted_cents = excluded.counted_cents,
+           difference_cents = excluded.difference_cents,
+           notes = excluded.notes`,
+        [
+          s.id,
+          s.user_id,
+          s.user_name,
+          s.is_open,
+          s.opened_at,
+          s.closed_at,
+          s.initial_amount_cents,
+          s.sales_cash_cents,
+          s.supplies_cents,
+          s.withdraws_cents,
+          s.expected_drawer_cents,
+          s.counted_cents,
+          s.difference_cents,
+          s.notes
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura movimentações de caixa
+  if (Array.isArray(d.cashMovements)) {
+    for (const m of d.cashMovements) {
+      await db.execute(
+        `INSERT INTO cash_movements (id, session_id, user_id, type, amount_cents, reason, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT(id) DO UPDATE SET
+           type = excluded.type,
+           amount_cents = excluded.amount_cents,
+           reason = excluded.reason`,
+        [m.id, m.session_id, m.user_id, m.type, m.amount_cents, m.reason, m.timestamp]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura vendas
+  if (Array.isArray(d.sales)) {
+    for (const s of d.sales) {
+      await db.execute(
+        `INSERT INTO sales (id, session_id, user_id, customer_id, customer_name, subtotal_cents, discount_cents, total_cents, change_cents, payment_method, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT(id) DO UPDATE SET
+           subtotal_cents = excluded.subtotal_cents,
+           discount_cents = excluded.discount_cents,
+           total_cents = excluded.total_cents,
+           change_cents = excluded.change_cents,
+           payment_method = excluded.payment_method`,
+        [
+          s.id,
+          s.session_id,
+          s.user_id,
+          s.customer_id,
+          s.customer_name,
+          s.subtotal_cents,
+          s.discount_cents,
+          s.total_cents,
+          s.change_cents,
+          s.payment_method,
+          s.created_at
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura itens de vendas
+  if (Array.isArray(d.saleItems)) {
+    for (const si of d.saleItems) {
+      await db.execute(
+        `INSERT INTO sale_items (id, sale_id, product_id, product_name, quantity, unit_price_cents, cost_price_cents, total_cents)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT(id) DO UPDATE SET
+           quantity = excluded.quantity,
+           total_cents = excluded.total_cents`,
+        [
+          si.id,
+          si.sale_id,
+          si.product_id,
+          si.product_name,
+          si.quantity,
+          si.unit_price_cents,
+          si.cost_price_cents,
+          si.total_cents
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura movimentações de estoque
+  if (Array.isArray(d.inventoryMovements)) {
+    for (const im of d.inventoryMovements) {
+      await db.execute(
+        `INSERT INTO inventory_movements (id, product_id, product_name, type, quantity, previous_balance, new_balance, cost_price_cents, user_name, notes, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT(id) DO NOTHING`,
+        [
+          im.id,
+          im.product_id,
+          im.product_name,
+          im.type,
+          im.quantity,
+          im.previous_balance,
+          im.new_balance,
+          im.cost_price_cents,
+          im.user_name,
+          im.notes,
+          im.created_at
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura clientes
+  if (Array.isArray(d.customers)) {
+    for (const cust of d.customers) {
+      await db.execute(
+        `INSERT INTO customers (id, name, document, phone, address, notes, total_spent_cents, purchases_count, last_purchase_date, is_active, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           document = excluded.document,
+           phone = excluded.phone,
+           address = excluded.address,
+           notes = excluded.notes,
+           total_spent_cents = excluded.total_spent_cents,
+           purchases_count = excluded.purchases_count,
+           last_purchase_date = excluded.last_purchase_date,
+           is_active = excluded.is_active`,
+        [
+          cust.id,
+          cust.name,
+          cust.document,
+          cust.phone,
+          cust.address,
+          cust.notes,
+          cust.total_spent_cents,
+          cust.purchases_count,
+          cust.last_purchase_date,
+          cust.is_active,
+          cust.created_at
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura fornecedores
+  if (Array.isArray(d.suppliers)) {
+    for (const sup of d.suppliers) {
+      await db.execute(
+        `INSERT INTO suppliers (id, company_name, trade_name, document, phone, contact_name, email, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT(id) DO UPDATE SET
+           company_name = excluded.company_name,
+           trade_name = excluded.trade_name,
+           document = excluded.document,
+           phone = excluded.phone,
+           contact_name = excluded.contact_name,
+           email = excluded.email`,
+        [
+          sup.id,
+          sup.company_name,
+          sup.trade_name,
+          sup.document,
+          sup.phone,
+          sup.contact_name,
+          sup.email,
+          sup.created_at
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura compras
+  if (Array.isArray(d.purchases)) {
+    for (const pur of d.purchases) {
+      await db.execute(
+        `INSERT INTO purchases (id, order_number, supplier_id, supplier_name, invoice_number, total_cents, status, received_at, notes, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT(id) DO UPDATE SET
+           order_number = excluded.order_number,
+           supplier_id = excluded.supplier_id,
+           supplier_name = excluded.supplier_name,
+           invoice_number = excluded.invoice_number,
+           total_cents = excluded.total_cents,
+           status = excluded.status,
+           received_at = excluded.received_at,
+           notes = excluded.notes`,
+        [
+          pur.id,
+          pur.order_number,
+          pur.supplier_id,
+          pur.supplier_name,
+          pur.invoice_number,
+          pur.total_cents,
+          pur.status,
+          pur.received_at,
+          pur.notes,
+          pur.created_at
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura itens de compras
+  if (Array.isArray(d.purchaseItems)) {
+    for (const pi of d.purchaseItems) {
+      await db.execute(
+        `INSERT INTO purchase_items (id, purchase_id, product_id, product_name, internal_code, unit_measure, quantity, unit_cost_cents, total_cost_cents)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT(id) DO UPDATE SET
+           quantity = excluded.quantity,
+           unit_cost_cents = excluded.unit_cost_cents,
+           total_cost_cents = excluded.total_cost_cents`,
+        [
+          pi.id,
+          pi.purchase_id,
+          pi.product_id,
+          pi.product_name,
+          pi.internal_code,
+          pi.unit_measure,
+          pi.quantity,
+          pi.unit_cost_cents,
+          pi.total_cost_cents
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  return { success: true, message: 'Restauração concluída com sucesso!' };
+}

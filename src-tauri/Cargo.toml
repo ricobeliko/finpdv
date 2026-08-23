@@ -1,6 +1,6 @@
 [package]
 name = "mercado-pos"
-version = "0.1.11"
+version = "0.1.12"
 description = "Mercearia Uber"
 edition = "2021"
 

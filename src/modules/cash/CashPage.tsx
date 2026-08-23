@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { useCashStore, CashMovement } from './cashStore';
 import { useUserStore } from '../users/userStore';
+import { usePosStore } from '../pos/posStore';
+import { getSessionSaleItemsMapDb } from '../../core/database/db';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -48,6 +50,7 @@ export function CashPage() {
 
   const { currentUser } = useUserStore();
 
+  const [initialAmountInput, setInitialAmountInput] = useState('');
   const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
   const [isSupplyModalOpen, setIsSupplyModalOpen] = useState(false);
   const [isBleedModalOpen, setIsBleedModalOpen] = useState(false);
@@ -59,14 +62,88 @@ export function CashPage() {
   const [countedAmountInput, setCountedAmountInput] = useState('');
   const [movementAmountInput, setMovementAmountInput] = useState('');
   const [movementReasonInput, setMovementReasonInput] = useState('');
+  const [saleItemsMap, setSaleItemsMap] = useState<Record<string, Array<{ name: string; quantity: number; totalCents: number }>>>({});
 
   const countedInputRef = useRef<HTMLInputElement>(null);
   const movementInputRef = useRef<HTMLInputElement>(null);
   const refundInputRef = useRef<HTMLInputElement>(null);
 
+  const loadSaleItems = async () => {
+    try {
+      const itemsMap = await getSessionSaleItemsMapDb(currentSession?.id);
+      setSaleItemsMap(itemsMap);
+    } catch (err) {
+      console.error('Erro ao buscar itens de vendas para o livro razão:', err);
+    }
+  };
+
   useEffect(() => {
     initCash(currentUser?.id || 'usr-admin', currentUser?.name || 'Administrador');
-  }, []);
+    loadSaleItems();
+  }, [currentSession?.id, movements.length]);
+
+  const renderMovementReason = (m: CashMovement) => {
+    let saleId = '';
+    if (m.id.startsWith('mov-sale-')) {
+      saleId = m.id.replace('mov-sale-', '');
+    } else {
+      const match = m.reason.match(/CUPOM-\d+/);
+      if (match) saleId = match[0];
+    }
+
+    const items = saleId ? saleItemsMap[saleId] : undefined;
+
+    let mainTitle = m.reason;
+    let inlineItems = '';
+    if (m.reason.includes(' • ')) {
+      const parts = m.reason.split(' • ');
+      mainTitle = parts[0];
+      inlineItems = parts[1];
+    }
+
+    const hasItems = (items && items.length > 0) || Boolean(inlineItems);
+
+    return (
+      <div className="space-y-0.5">
+        {/* 1. TOPO: DESCRIÇÃO DOS ITENS VENDIDOS */}
+        {items && items.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {items.map((it, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-xs font-mono text-slate-800 font-bold"
+              >
+                <span className="text-primary mr-1">{it.quantity}x</span>
+                <span>{it.name}</span>
+              </span>
+            ))}
+          </div>
+        ) : inlineItems ? (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {inlineItems.split(', ').map((itStr, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-xs font-mono text-slate-800 font-bold"
+              >
+                <span>{itStr}</span>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className="font-bold text-slate-800 text-xs">
+            {mainTitle}
+          </div>
+        )}
+
+        {/* 2. BAIXO: INFORMAÇÕES DO CUPOM */}
+        {hasItems && (
+          <div className="text-[10px] text-slate-400 font-mono font-medium">
+            {mainTitle}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const isCashOpen = !!currentSession?.isOpen;
   const expectedDrawerCents = getExpectedDrawerCents();
@@ -75,6 +152,11 @@ export function CashPage() {
   const withdrawsCents = getWithdrawsCents();
 
   const handleOpenCloseModal = () => {
+    const posState = usePosStore.getState();
+    if (posState.hasActiveSale()) {
+      alert(`⚠️ ATENÇÃO: Há uma venda em andamento no PDV com ${posState.cart.length} item(ns).\n\nConclua a venda ou cancele os itens no PDV antes de realizar o fechamento do caixa.`);
+      return;
+    }
     const defaultVal = (expectedDrawerCents / 100).toFixed(2);
     setCountedAmountInput(defaultVal);
     setIsCloseModalOpen(true);
@@ -86,6 +168,12 @@ export function CashPage() {
 
   const handleConfirmClose = async (e: React.FormEvent) => {
     e.preventDefault();
+    const posState = usePosStore.getState();
+    if (posState.hasActiveSale()) {
+      alert(`⚠️ ATENÇÃO: Há uma venda em andamento no PDV com ${posState.cart.length} item(ns).\n\nConclua ou cancele a venda antes de encerrar o caixa.`);
+      setIsCloseModalOpen(false);
+      return;
+    }
     const countedCents = parseToCents(countedAmountInput);
     await closeSession(countedCents, 'Fechamento Manual de Caixa');
     setIsCloseModalOpen(false);
@@ -235,7 +323,10 @@ export function CashPage() {
           </span>
           <div className="flex items-center space-x-3">
             <button 
-              onClick={() => initCash(currentUser?.id || 'usr-admin', currentUser?.name || 'Administrador')}
+              onClick={() => {
+                initCash(currentUser?.id || 'usr-admin', currentUser?.name || 'Administrador');
+                loadSaleItems();
+              }}
               className="text-slate-400 hover:text-slate-700 p-1"
               title="Recarregar Movimentações"
             >
@@ -289,7 +380,7 @@ export function CashPage() {
                         </span>
                       </td>
                       <td className={`px-4 py-3 font-sans font-medium ${isRefundedSale ? 'line-through text-slate-500' : 'text-slate-800'}`}>
-                        {m.reason}
+                        {isSale || isRefundedSale ? renderMovementReason(m) : m.reason}
                       </td>
                       <td className={`px-4 py-3 text-right font-bold text-xs ${
                         isRefundedSale ? 'line-through text-slate-400' : isSale || isSupp ? 'text-primary' : 'text-red-600'

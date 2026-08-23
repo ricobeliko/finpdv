@@ -47,9 +47,15 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
 
   const handleToggleMaximize = async () => {
     try {
-      await getCurrentWindow().toggleMaximize();
+      const win = getCurrentWindow();
+      const isFull = await win.isFullscreen();
+      await win.setFullscreen(!isFull);
     } catch (err) {
-      console.warn('ToggleMaximize error:', err);
+      try {
+        await getCurrentWindow().toggleMaximize();
+      } catch (e) {
+        console.warn('ToggleMaximize error:', e);
+      }
     }
   };
 

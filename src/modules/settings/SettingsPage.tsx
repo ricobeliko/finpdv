@@ -175,17 +175,25 @@ export function SettingsPage() {
     }
   };
 
-  const handleGenerateBackup = () => {
-    const bkp = createBackup('MANUAL');
-    showToast(`Backup atômico "${bkp.filename}" gerado com sucesso!`);
+  const handleGenerateBackup = async () => {
+    try {
+      const bkp = await createBackup('MANUAL');
+      showToast(`Backup "${bkp.filename}" gerado e baixado no computador!`);
+    } catch (err: any) {
+      alert(`Erro ao gerar backup: ${err.message || err}`);
+    }
   };
 
   const handleExecuteRestore = async () => {
     if (!selectedBackup) return;
-    await restoreBackup(selectedBackup.id);
-    setIsRestoreModalOpen(false);
-    setSelectedBackup(null);
-    showToast('Base de dados restaurada com sucesso!');
+    try {
+      await restoreBackup(selectedBackup.id);
+      setIsRestoreModalOpen(false);
+      setSelectedBackup(null);
+      showToast('Base de dados restaurada com sucesso!');
+    } catch (err: any) {
+      alert(`Falha na restauração do backup: ${err.message || err}`);
+    }
   };
 
   const handleOpenBackupFolder = async () => {
@@ -201,13 +209,23 @@ export function SettingsPage() {
   const handleImportBackup = async () => {
     try {
       await importBackup();
-      showToast('Backup importado e adicionado à lista com sucesso!');
     } catch (err: any) {
       console.error("Erro ao importar backup:", err);
       if (err.message !== 'Dialog closed') {
         alert(`Falha na importação: ${err.message}`);
       }
     }
+  };
+
+  const handleSendBackupEmail = () => {
+    if (!formData.backupEmail || !formData.backupEmail.includes('@')) {
+      alert('Por favor, informe um endereço de e-mail válido nas configurações.');
+      return;
+    }
+    const subject = encodeURIComponent(`[Backup Mercado POS] - Cópia de Segurança ${new Date().toLocaleDateString('pt-BR')}`);
+    const body = encodeURIComponent(`Olá!\n\nSegue o registro de segurança do Mercado POS.\nData: ${new Date().toLocaleString('pt-BR')}\nEmpresa: ${formData.tradeName || formData.companyName}\n\nO arquivo físico de backup foi gerado e salvo na sua máquina.`);
+    window.open(`mailto:${formData.backupEmail}?subject=${subject}&body=${body}`);
+    showToast(`Cliente de e-mail aberto para ${formData.backupEmail}`);
   };
 
   const handleOpenResetModal = () => {
@@ -422,7 +440,7 @@ export function SettingsPage() {
               <div>
                 <p className="text-[10px] font-bold text-textMuted uppercase">Última Cópia de Segurança</p>
                 <p className="text-base font-bold text-slate-800 mt-0.5 font-mono">{lastBackupDate}</p>
-                <span className="text-[10px] text-emerald-700 font-bold">Integridade Verificada</span>
+                <span className="text-[10px] text-emerald-700 font-bold">Download Físico Ativo</span>
               </div>
               <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
                 <Clock className="w-4 h-4" />
@@ -441,10 +459,50 @@ export function SettingsPage() {
             </div>
           </div>
 
+          {/* CARD DE SALVAGUARDA EXTERNA & ENVIO POR E-MAIL */}
+          <div className="bg-surface p-4 rounded-xl border border-slate-200 shadow-sm shrink-0 flex items-center justify-between gap-4">
+            <div className="space-y-0.5 max-w-md">
+              <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                <CloudDownload className="w-4 h-4 text-primary" />
+                <span>Salvaguarda Externa & Envio Automático Mensal</span>
+              </span>
+              <p className="text-[11px] text-textMuted leading-tight">
+                Cadastre o e-mail do proprietário para envio de cópias de segurança fora da máquina. O sistema gera automaticamente um backup na virada de cada mês.
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <input
+                type="email"
+                placeholder="exemplo@email.com"
+                value={formData.backupEmail || ''}
+                onChange={(e) => setFormData({ ...formData, backupEmail: e.target.value })}
+                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs w-64 bg-slate-50 focus:bg-white focus:outline-none focus:border-primary font-medium"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  updateSettings({ backupEmail: formData.backupEmail });
+                  showToast('E-mail de salvaguarda salvo com sucesso!');
+                }}
+                className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0"
+              >
+                Salvar E-mail
+              </button>
+              <button
+                type="button"
+                onClick={handleSendBackupEmail}
+                className="bg-primary hover:bg-primary-hover text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 transition-colors shrink-0 shadow-sm"
+              >
+                <span>Disparar Cópia</span>
+              </button>
+            </div>
+          </div>
+
           <div className="flex-1 bg-surface rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
             <div className="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-              <span className="text-xs font-bold text-textMain uppercase tracking-wider">Histórico de Snapshots Locais</span>
-              <span className="text-[11px] text-textMuted">Armazenado no diretório da aplicação</span>
+              <span className="text-xs font-bold text-textMain uppercase tracking-wider">Histórico de Snapshots Físicos</span>
+              <span className="text-[11px] text-textMuted">Clique em "Baixar" para salvar em pendrive ou nuvem</span>
             </div>
 
             <div className="overflow-y-auto flex-1">
@@ -456,39 +514,58 @@ export function SettingsPage() {
                     <th className="px-4 py-3">Tamanho</th>
                     <th className="px-4 py-3 font-sans">Tipo</th>
                     <th className="px-4 py-3">Checksum</th>
-                    <th className="px-4 py-3 text-right font-sans">Ação</th>
+                    <th className="px-4 py-3 text-right font-sans">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {backups.map((b) => (
-                    <tr key={b.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-bold text-slate-800">{b.filename}</td>
-                      <td className="px-4 py-3 text-textMuted">{b.createdAt}</td>
-                      <td className="px-4 py-3 text-slate-700">{formatBytes(b.sizeBytes)}</td>
-                      <td className="px-4 py-3 font-sans">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          b.type === 'AUTOMATIC' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
-                        }`}>
-                          {b.type === 'AUTOMATIC' ? 'AUTOMÁTICO' : 'MANUAL'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-textMuted text-[10px] truncate max-w-[140px]" title={b.checksum}>
-                        {b.checksum}
-                      </td>
-                      <td className="px-4 py-3 text-right font-sans">
-                        <button
-                          onClick={() => {
-                            setSelectedBackup(b);
-                            setIsRestoreModalOpen(true);
-                          }}
-                          className="bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 ml-auto"
-                        >
-                          <RotateCcw className="w-3 h-3 text-amber-400" />
-                          <span>Restaurar</span>
-                        </button>
+                  {backups.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-12 text-slate-400 font-sans text-xs">
+                        Nenhum backup gerado ainda. Clique em "Gerar Backup Agora" para criar sua primeira cópia.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    backups.map((b) => (
+                      <tr key={b.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-800">{b.filename}</td>
+                        <td className="px-4 py-3 text-textMuted">{b.createdAt}</td>
+                        <td className="px-4 py-3 text-slate-700">{formatBytes(b.sizeBytes)}</td>
+                        <td className="px-4 py-3 font-sans">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            b.type === 'AUTOMATIC' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {b.type === 'AUTOMATIC' ? 'AUTOMÁTICO' : 'MANUAL'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-textMuted text-[10px] truncate max-w-[140px]" title={b.checksum}>
+                          {b.checksum}
+                        </td>
+                        <td className="px-4 py-3 text-right font-sans">
+                          <div className="flex items-center justify-end space-x-1.5">
+                            <button
+                              onClick={() => useSettingsStore.getState().downloadBackup(b)}
+                              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition-colors"
+                              title="Baixar arquivo físico .json"
+                            >
+                              <HardDriveDownload className="w-3 h-3 text-emerald-600" />
+                              <span>Baixar</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedBackup(b);
+                                setIsRestoreModalOpen(true);
+                              }}
+                              className="bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition-colors"
+                              title="Restaurar dados no banco de dados"
+                            >
+                              <RotateCcw className="w-3 h-3 text-amber-400" />
+                              <span>Restaurar</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -648,24 +725,14 @@ export function SettingsPage() {
 
             {updateStatus.state === 'DOWNLOADING' && (
               <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl space-y-2 animate-fade-in">
-                <div className="flex justify-between text-xs font-bold text-blue-900">
-                  <span>Baixando atualização v{updateStatus.version}...</span>
-                  {updateStatus.totalBytes ? (
-                    <span className="font-mono">
-                      {Math.round(((updateStatus.downloadedBytes || 0) / updateStatus.totalBytes) * 100)}%
-                    </span>
-                  ) : (
-                    <span>Aguarde...</span>
-                  )}
+                <div className="flex items-center space-x-2 text-xs font-bold text-blue-900">
+                  <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                  <span>Baixando atualização ({updateStatus.progress}%)...</span>
                 </div>
-                <div className="w-full bg-blue-200 rounded-full h-2 overflow-hidden">
+                <div className="w-full bg-blue-200 h-2 rounded-full overflow-hidden">
                   <div 
-                    className="bg-primary h-2 rounded-full transition-all duration-300"
-                    style={{ 
-                      width: updateStatus.totalBytes 
-                        ? `${Math.min(100, Math.round(((updateStatus.downloadedBytes || 0) / updateStatus.totalBytes) * 100))}%`
-                        : '60%'
-                    }}
+                    className="bg-blue-600 h-full transition-all duration-300"
+                    style={{ width: `${updateStatus.progress}%` }}
                   />
                 </div>
               </div>
@@ -692,20 +759,22 @@ export function SettingsPage() {
             )}
           </div>
 
-          {/* ZONA DE PERIGO - ZERAR DADOS */}
-          <div className="bg-red-50 p-4 rounded-xl border-2 border-dashed border-red-300 space-y-3">
-            <div className="flex items-center space-x-2">
-              <AlertTriangle className="w-5 h-5 text-red-600" />
-              <h4 className="font-bold text-sm text-red-800">Zona de Perigo</h4>
+          {/* ÁREA DE PERIGO: ZERAR DADOS */}
+          <div className="bg-red-50/50 rounded-xl border border-red-200 p-6 space-y-3">
+            <div className="flex items-center space-x-2 text-red-700 font-bold text-sm">
+              <AlertTriangle className="w-5 h-5" />
+              <span>Área Restrita: Zerar Todos os Dados do Sistema</span>
             </div>
-            <p className="text-xs text-red-700">A ação abaixo é irreversível e irá apagar permanentemente todos os produtos, vendas, caixas, clientes, compras e configurações do sistema.</p>
+            <p className="text-xs text-red-600 leading-relaxed">
+              Esta ação apaga todo o catálogo de produtos, histórico de vendas, fechamentos de caixa e configurações salvas no banco SQLite. Use com extrema cautela apenas para reiniciar a loja.
+            </p>
             <button
               type="button"
               onClick={handleOpenResetModal}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-md"
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-colors"
             >
               <Skull className="w-4 h-4" />
-              <span>Zerar Todos os Dados do Sistema</span>
+              <span>Zerar Dados do Sistema</span>
             </button>
           </div>
         </div>
@@ -730,7 +799,7 @@ export function SettingsPage() {
         onConfirm={async () => {
           await useSettingsStore.getState().resetAllData();
           setIsResetModalOpen(false);
-          alert('Todos os dados do sistema foram apagados com sucesso!');
+          alert('Todos os dados do sistema foram apagados com sucesso! Uma cópia de emergência foi salva.');
           window.location.reload();
         }}
       />
@@ -743,13 +812,15 @@ export function SettingsPage() {
  */
 function ResetDataModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; onClose: () => void; onConfirm: () => Promise<void>; }) {
   const [confirmationText, setConfirmationText] = useState('');
+  const [pinText, setPinText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const confirmationPhrase = 'ZERAR TUDO';
-  const isConfirmed = confirmationText === confirmationPhrase;
+  const isConfirmed = confirmationText === confirmationPhrase && pinText === '1234';
 
   useEffect(() => {
     if (isOpen) {
       setConfirmationText('');
+      setPinText('');
       setIsDeleting(false);
     }
   }, [isOpen]);
@@ -773,8 +844,8 @@ function ResetDataModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; onClo
         <div className="p-5 bg-red-600 text-white flex items-center space-x-3">
           <Skull className="w-8 h-8 shrink-0" />
           <div>
-            <h3 className="font-black text-lg">AÇÃO IRREVERSÍVEL</h3>
-            <p className="text-xs text-red-100 mt-0.5">Confirmação de exclusão total dos dados.</p>
+            <h3 className="font-black text-lg">AÇÃO IRREVERSÍVEL PROTEGIDA</h3>
+            <p className="text-xs text-red-100 mt-0.5">Confirmação de segurança de exclusão total.</p>
           </div>
         </div>
 
@@ -785,20 +856,36 @@ function ResetDataModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; onClo
           <ul className="text-xs list-disc list-inside bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1 text-slate-600">
             <li>Todos os produtos, códigos de barras e categorias</li>
             <li>Todo o histórico de vendas e itens vendidos</li>
-            <li>Todos os fechamentos e movimentações de caixa (incluindo dados de teste)</li>
+            <li>Todos os fechamentos e movimentações de caixa</li>
             <li>Todos os clientes, fornecedores e compras</li>
-            <li>Todo o histórico de estoque e configurações salvas</li>
           </ul>
-          <p className="text-sm font-semibold text-slate-800">
-            Para confirmar, digite <strong className="font-mono text-red-600 bg-red-100 px-1.5 py-0.5 rounded">{confirmationPhrase}</strong> no campo abaixo:
-          </p>
-          <input
-            type="text"
-            value={confirmationText}
-            onChange={(e) => setConfirmationText(e.target.value)}
-            disabled={isDeleting}
-            className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl font-mono text-center text-lg font-bold tracking-widest uppercase focus:outline-none focus:border-red-500"
-          />
+
+          <div className="space-y-3 pt-1">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">1. PIN de Administrador (Padrão: 1234):</label>
+              <input
+                type="password"
+                maxLength={6}
+                value={pinText}
+                onChange={(e) => setPinText(e.target.value)}
+                placeholder="Digite o PIN"
+                className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg font-mono text-center font-bold text-base focus:border-red-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                2. Digite <strong className="text-red-600">{confirmationPhrase}</strong> para autorizar:
+              </label>
+              <input
+                type="text"
+                value={confirmationText}
+                onChange={(e) => setConfirmationText(e.target.value)}
+                disabled={isDeleting}
+                className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg font-mono text-center text-sm font-bold tracking-wider uppercase focus:outline-none focus:border-red-500"
+              />
+            </div>
+          </div>
 
           <div className="flex items-center justify-end space-x-3 pt-2">
             <button 
@@ -813,10 +900,10 @@ function ResetDataModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; onClo
               type="button"
               onClick={handleConfirmClick}
               disabled={!isConfirmed || isDeleting}
-              className="bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg transition-all flex items-center space-x-2"
+              className="bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-all flex items-center space-x-2"
             >
-              <Trash2 className="w-5 h-5" />
-              <span>{isDeleting ? 'Apagando tudo...' : 'Eu entendo, apagar tudo'}</span>
+              <Trash2 className="w-4 h-4" />
+              <span>{isDeleting ? 'Apagando tudo...' : 'Autorizar e Zerar Dados'}</span>
             </button>
           </div>
         </div>

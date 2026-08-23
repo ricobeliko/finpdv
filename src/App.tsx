@@ -14,8 +14,10 @@ import { useUserStore } from './modules/users/userStore';
 import { SwitchUserDecisionModal, UserSelectModal } from './shared/components/SwitchUserModal';
 import { CloseCashBlindModal, CashClosingReportModal } from './modules/cash/components/CashModals';
 import { CashClosingSummary } from './modules/cash/types';
+import { usePosStore } from './modules/pos/posStore';
 
 import { useCustomerStore } from './modules/customers/customerStore';
+import { useSettingsStore } from './modules/settings/settingsStore';
 import { enable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AutoUpdateNotification } from './shared/components/AutoUpdateNotification';
@@ -40,10 +42,14 @@ export default function App() {
     loadFromDb();
     initCash();
     loadCustomers();
+    useSettingsStore.getState().checkMonthlyAutoBackup();
 
-    // Garante que a janela abre maximizada ocupando toda a tela
+    // Garante que a aplicação inicia em tela cheia (modo quiosque PDV), ocultando a barra de tarefas do Windows
     try {
-      getCurrentWindow().maximize().catch(() => {});
+      const win = getCurrentWindow();
+      win.setFullscreen(true).catch(() => {
+        win.maximize().catch(() => {});
+      });
     } catch (_) {}
 
     // Ativa o início automático com o Windows
@@ -81,12 +87,26 @@ export default function App() {
 
   // 3. Opção: Encerrar Caixa
   const handleChooseCloseCash = () => {
+    const posState = usePosStore.getState();
+    if (posState.hasActiveSale()) {
+      alert(`⚠️ ATENÇÃO: Há uma venda em andamento no PDV com ${posState.cart.length} item(ns).\n\nConclua a venda ou cancele os itens no PDV antes de encerrar o caixa.`);
+      setShowDecisionModal(false);
+      setCurrentModule('POS');
+      return;
+    }
     setShowDecisionModal(false);
     setShowCloseCashModal(true);
   };
 
   // 4. Confirmação do Fechamento Cego
   const handleConfirmCloseCash = async (countedCents: number) => {
+    const posState = usePosStore.getState();
+    if (posState.hasActiveSale()) {
+      alert(`⚠️ ATENÇÃO: Há uma venda em andamento no PDV com ${posState.cart.length} item(ns).\n\nConclua ou cancele a venda antes de encerrar o caixa.`);
+      setShowCloseCashModal(false);
+      setCurrentModule('POS');
+      return;
+    }
     const summary = await closeSession(countedCents);
     setShowCloseCashModal(false);
     setClosingSummary(summary);

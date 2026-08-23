@@ -128,18 +128,38 @@ export const useProductStore = create<ProductState>((set, get) => ({
   },
 
   deductStockFromSale: async (saleItems, saleId) => {
+    const currentUser = useUserStore.getState().currentUser;
+    const userName = currentUser?.name || 'Operador de Caixa';
+    const now = new Date().toLocaleString('pt-BR');
+
     for (const item of saleItems) {
       const prod = get().products.find(p => p.id === item.productId);
       if (prod) {
-        const nextBalance = Math.max(0, prod.currentStock - item.quantity);
+        const prevBalance = prod.currentStock;
+        const nextBalance = prevBalance - item.quantity;
+        
         set(state => ({
           products: state.products.map(p => p.id === prod.id ? { ...p, currentStock: nextBalance } : p)
         }));
 
         try {
           await updateStockDb(prod.id, nextBalance);
+          const mov: InventoryMovement = {
+            id: `mov-sale-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            productId: prod.id,
+            productName: prod.name,
+            type: 'SALE',
+            quantity: item.quantity,
+            previousBalance: prevBalance,
+            newBalance: nextBalance,
+            costPriceCents: prod.costPriceCents || 0,
+            userName,
+            notes: `Venda no PDV Cupom #${saleId}`,
+            createdAt: now
+          };
+          await insertMovementDb(mov);
         } catch (e) {
-          console.error(e);
+          console.error('Erro ao atualizar estoque ou salvar histórico de movimentação:', e);
         }
       }
     }

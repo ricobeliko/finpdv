@@ -160,6 +160,43 @@ fn open_cash_drawer(printer_name: String) -> Result<(), String> {
     print_raw_escpos(printer_name, drawer_pulse)
 }
 
+// 4. DISPARO NATIVO DE E-MAIL (SEM BLOQUEIO DE CORS)
+#[tauri::command]
+fn send_resend_email(api_key: String, payload: String) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let ps_script = format!(
+            r#"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $headers = @{{ "Authorization" = "Bearer {}"; "Content-Type" = "application/json" }}; try {{ $res = Invoke-RestMethod -Uri "https://api.resend.com/emails" -Method Post -Headers $headers -Body @'
+{}
+'@; $res | ConvertTo-Json -Compress }} catch {{ Write-Error $_.Exception.Message; exit 1 }}"#,
+            api_key, payload
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("Erro ao executar requisição nativa: {}", e))?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            Ok(stdout)
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(stderr)
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err("Disparo nativo disponível no Windows".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -174,7 +211,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_printers, 
             print_raw_escpos, 
-            open_cash_drawer
+            open_cash_drawer,
+            send_resend_email
         ])
         .run(tauri::generate_context!())
         .expect("erro ao executar aplicação tauri");

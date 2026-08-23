@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { FullDatabaseDump } from '../database/db';
 
 export interface EmailBackupResult {
@@ -15,7 +16,7 @@ function stringToBase64(str: string): string {
 }
 
 /**
- * Envia o backup por e-mail diretamente via Resend API (Plano 100% gratuito)
+ * Envia o backup por e-mail diretamente via Resend API através do canal nativo (sem restrições de CORS)
  */
 export async function sendBackupByEmail(
   toEmail: string,
@@ -30,7 +31,14 @@ export async function sendBackupByEmail(
     };
   }
 
-  const apiKey = customApiKey || 're_mercado_pos_default';
+  const apiKey = (customApiKey || '').trim();
+  if (!apiKey || !apiKey.startsWith('re_')) {
+    return {
+      success: false,
+      message: 'Chave de API do Resend não configurada. Crie uma chave grátis em resend.com (ex: re_1234...) e cole no campo "Chave de API Resend" para disparar.'
+    };
+  }
+
   const jsonContent = JSON.stringify(dump, null, 2);
   const base64Attachment = stringToBase64(jsonContent);
   const dateStr = new Date().toLocaleDateString('pt-BR');
@@ -38,7 +46,7 @@ export async function sendBackupByEmail(
   const filename = `backup_${companyName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
 
   const htmlBody = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 12px; background-color: #ffffff;">
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
       <div style="background-color: #059669; padding: 15px; border-radius: 8px; text-align: center; color: #ffffff;">
         <h2 style="margin: 0; font-size: 20px;">📦 Cópia de Segurança do Mercado POS</h2>
         <p style="margin: 5px 0 0 0; font-size: 13px; opacity: 0.9;">${companyName}</p>
@@ -71,45 +79,35 @@ export async function sendBackupByEmail(
     </div>
   `;
 
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
+  const payload = JSON.stringify({
+    from: 'Mercado POS <onboarding@resend.dev>',
+    to: [toEmail],
+    subject: `[Backup Mercado POS] - Cópia de Segurança ${dateStr} (${companyName})`,
+    html: htmlBody,
+    attachments: [
+      {
+        filename,
+        content: base64Attachment,
       },
-      body: JSON.stringify({
-        from: 'Mercado POS <onboarding@resend.dev>',
-        to: [toEmail],
-        subject: `[Backup Mercado POS] - Cópia de Segurança ${dateStr} (${companyName})`,
-        html: htmlBody,
-        attachments: [
-          {
-            filename,
-            content: base64Attachment,
-          },
-        ],
-      }),
+    ],
+  });
+
+  try {
+    const result = await invoke<string>('send_resend_email', {
+      apiKey,
+      payload
     });
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      const errMsg = errData?.message || `Erro HTTP ${response.status}`;
-      return {
-        success: false,
-        message: `Falha ao enviar e-mail via API: ${errMsg}. Verifique sua chave de API nas configurações.`
-      };
-    }
-
+    console.log('Resposta do envio de e-mail:', result);
     return {
       success: true,
       message: `Backup enviado com sucesso para ${toEmail}!`
     };
   } catch (err: any) {
-    console.error('Erro na requisição da API de e-mail:', err);
+    console.error('Erro na requisição nativa de e-mail:', err);
     return {
       success: false,
-      message: `Não foi possível conectar ao serviço de e-mail: ${err.message || err}`
+      message: `Erro no envio de e-mail: ${err.message || err}`
     };
   }
 }

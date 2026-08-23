@@ -478,56 +478,75 @@ export function SettingsPage() {
           </div>
 
           {/* CARD DE SALVAGUARDA EXTERNA & ENVIO POR E-MAIL */}
-          <div className="bg-surface p-4 rounded-xl border border-slate-200 shadow-sm shrink-0 flex items-center justify-between gap-4">
-            <div className="space-y-0.5 max-w-md">
-              <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                <CloudDownload className="w-4 h-4 text-primary" />
-                <span>Salvaguarda Externa & Envio Automático Mensal</span>
-              </span>
-              <p className="text-[11px] text-textMuted leading-tight">
-                Cadastre o e-mail do proprietário para receber cópias de segurança anexadas. O sistema gera e envia automaticamente um backup na virada de cada mês.
-              </p>
+          <div className="bg-surface p-4 rounded-xl border border-slate-200 shadow-sm shrink-0 space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5 max-w-md">
+                <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                  <CloudDownload className="w-4 h-4 text-primary" />
+                  <span>Salvaguarda Externa & Envio Automático Mensal</span>
+                </span>
+                <p className="text-[11px] text-textMuted leading-tight">
+                  Receba o arquivo físico do banco de dados anexado no seu e-mail a cada virada de mês ou sob demanda.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="email"
+                  placeholder="seuemail@gmail.com"
+                  value={formData.backupEmail || ''}
+                  onChange={(e) => setFormData({ ...formData, backupEmail: e.target.value })}
+                  className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs w-56 bg-slate-50 focus:bg-white focus:outline-none focus:border-primary font-medium"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateSettings({ 
+                      backupEmail: formData.backupEmail,
+                      resendApiKey: formData.resendApiKey 
+                    });
+                    showToast('Configurações de e-mail salvas com sucesso!');
+                  }}
+                  className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0"
+                >
+                  Salvar
+                </button>
+                <button
+                  type="button"
+                  disabled={isSendingEmail}
+                  onClick={handleSendBackupEmail}
+                  className="bg-primary hover:bg-primary-hover disabled:bg-slate-400 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors shrink-0 shadow-sm"
+                >
+                  {isSendingEmail ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Enviando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Disparar Cópia</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <input
-                type="email"
-                placeholder="exemplo@email.com"
-                value={formData.backupEmail || ''}
-                onChange={(e) => setFormData({ ...formData, backupEmail: e.target.value })}
-                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs w-64 bg-slate-50 focus:bg-white focus:outline-none focus:border-primary font-medium"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  updateSettings({ 
-                    backupEmail: formData.backupEmail,
-                    resendApiKey: formData.resendApiKey 
-                  });
-                  showToast('E-mail de salvaguarda salvo com sucesso!');
-                }}
-                className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0"
-              >
-                Salvar E-mail
-              </button>
-              <button
-                type="button"
-                disabled={isSendingEmail}
-                onClick={handleSendBackupEmail}
-                className="bg-primary hover:bg-primary-hover disabled:bg-slate-400 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors shrink-0 shadow-sm"
-              >
-                {isSendingEmail ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Enviando...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Disparar Cópia</span>
-                  </>
-                )}
-              </button>
+            {/* CAMPO DA CHAVE DE API RESEND */}
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-2">
+                <span className="font-semibold text-slate-700">Chave de API Resend:</span>
+                <input
+                  type="password"
+                  placeholder="re_123456789..."
+                  value={formData.resendApiKey || ''}
+                  onChange={(e) => setFormData({ ...formData, resendApiKey: e.target.value })}
+                  className="px-2.5 py-1 border border-slate-200 rounded text-xs w-72 bg-slate-50 font-mono focus:bg-white focus:outline-none focus:border-primary"
+                />
+                <span className="text-[11px] text-textMuted">
+                  (Crie grátis em <strong className="text-slate-700">resend.com/api-keys</strong>)
+                </span>
+              </div>
             </div>
           </div>
 

@@ -545,6 +545,8 @@ export const getProductsDb = loadProductsFromDb;
 
 export async function saveProductToDb(product: Product): Promise<void> {
   const db = await getDb();
+
+  // 1. Salva / Atualiza o produto principal
   await db.execute(
     `INSERT INTO products 
      (id, internal_code, name, category_id, unit_measure, cost_price_cents, retail_price_cents, current_stock, min_stock, is_weighable, is_active) 
@@ -575,18 +577,29 @@ export async function saveProductToDb(product: Product): Promise<void> {
     ]
   );
 
+  // 2. Atualiza códigos de barras associados (com validação estrita de duplicidade)
   await db.execute(`DELETE FROM product_barcodes WHERE product_id = $1`, [product.id]);
   if (product.barcodes && Array.isArray(product.barcodes)) {
     for (const b of product.barcodes) {
-      if (b && b.trim()) {
+      const cleanBarcode = b ? b.trim() : '';
+      if (cleanBarcode) {
+        const existing = await db.select<any[]>(
+          `SELECT product_id FROM product_barcodes WHERE barcode = $1 AND product_id != $2`,
+          [cleanBarcode, product.id]
+        );
+        if (existing && existing.length > 0) {
+          throw new Error(`O código de barras "${cleanBarcode}" já está associado a outro produto.`);
+        }
+
         await db.execute(
-          `INSERT OR IGNORE INTO product_barcodes (id, product_id, barcode) VALUES ($1, $2, $3)`,
-          [`bar-${Date.now()}-${Math.random()}`, product.id, b.trim()]
+          `INSERT INTO product_barcodes (id, product_id, barcode) VALUES ($1, $2, $3)`,
+          [`bar-${Date.now()}-${Math.random()}`, product.id, cleanBarcode]
         );
       }
     }
   }
 
+  // 3. Atualiza faixas de preço de atacado
   await db.execute(`DELETE FROM product_tier_prices WHERE product_id = $1`, [product.id]);
   if (product.tierPrices && Array.isArray(product.tierPrices)) {
     for (const t of product.tierPrices) {

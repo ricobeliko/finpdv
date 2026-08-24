@@ -25,6 +25,23 @@ interface ProductState {
   importFromCsv: (csvContent: string) => Promise<number>;
 }
 
+export function generateNextInternalCode(products: Product[]): string {
+  let maxSeq = 0;
+  for (const p of products) {
+    if (p.internalCode) {
+      const match = p.internalCode.match(/^COD-(\d+)$/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxSeq) {
+          maxSeq = num;
+        }
+      }
+    }
+  }
+  const nextSeq = maxSeq + 1;
+  return `COD-${String(nextSeq).padStart(5, '0')}`;
+}
+
 export const useProductStore = create<ProductState>((set, get) => ({
   products: [],
   categories: [
@@ -66,6 +83,10 @@ export const useProductStore = create<ProductState>((set, get) => ({
       isActive: formData.isActive ?? true
     };
 
+    // 1. Persiste no SQLite primeiro (fonte da verdade). Se falhar, lança erro para a UI.
+    await saveProductToDb(productToSave);
+
+    // 2. Atualiza estado em memória apenas se a persistência no SQLite foi confirmada
     set(state => {
       const index = state.products.findIndex(p => p.id === id);
       if (index >= 0) {
@@ -75,12 +96,6 @@ export const useProductStore = create<ProductState>((set, get) => ({
       }
       return { products: [productToSave, ...state.products] };
     });
-
-    try {
-      await saveProductToDb(productToSave);
-    } catch (err) {
-      console.error('Erro ao salvar produto no SQLite:', err);
-    }
   },
 
   adjustStock: async (productId, type, quantity, reason, notes, userName = 'Administrador') => {

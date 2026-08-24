@@ -40,10 +40,6 @@ export function ProductsPage() {
     importFromCsv 
   } = useProductStore();
 
-  useEffect(() => {
-    loadFromDb();
-  }, []);
-
   const [activeTab, setActiveTab] = useState<'PRODUCTS' | 'MOVEMENTS' | 'CATEGORIES'>('PRODUCTS');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
@@ -54,6 +50,27 @@ export function ProductsPage() {
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
   const [stockAdjustProduct, setStockAdjustProduct] = useState<Product | null>(null);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+
+  useEffect(() => {
+    loadFromDb();
+  }, []);
+
+  // Atalho de Teclado: Insert ou F2 abre o modal de Novo Produto
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Não aciona se o usuário estiver digitando em um input de busca ou modal aberto
+      if (e.key === 'Insert' || e.key === 'F2') {
+        if (!isProductModalOpen && !isStockModalOpen && !isCategoryModalOpen) {
+          e.preventDefault();
+          setEditingProduct(null);
+          setIsProductModalOpen(true);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isProductModalOpen, isStockModalOpen, isCategoryModalOpen]);
 
   // IMPORTAÇÃO DE PLANILHA DO NEX
   const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -176,10 +193,14 @@ export function ProductsPage() {
                 setEditingProduct(null);
                 setIsProductModalOpen(true);
               }}
-              className="bg-primary hover:bg-primary-hover text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-colors"
+              className="bg-primary hover:bg-primary-hover text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-2 shadow-sm transition-colors"
+              title="Atalho: Tecla Insert"
             >
               <Plus className="w-4 h-4" />
               <span>Novo Produto</span>
+              <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] font-mono tracking-tight text-white/90">
+                Insert
+              </kbd>
             </button>
           </div>
         )}

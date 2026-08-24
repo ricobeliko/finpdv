@@ -28,6 +28,5 @@ export interface StoreSettings {
   scaleBaudRate: number;  // 9600, 4800, etc.
   scalePort: string;      // COM1, COM3, etc.
   autoBackupDaily: boolean;
-  backupEmail?: string;
   autoBackupMonthly?: boolean;
 }

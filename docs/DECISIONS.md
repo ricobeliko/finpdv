@@ -47,7 +47,7 @@ Simplicidade operacional e foco nas necessidades reais do cliente no estágio at
 **Data:** 2026-08-24  
 
 ### Decisão:
-A integração de backup automatizado por e-mail via API Resend será descontinuada e removida do código.
+A integração de backup automatizado por e-mail via API Resend foi completamente removida do código funcional (Rust, TypeScript, Store, UI e GitHub Actions). O sistema mantém 100% das rotinas de backup físico, exportação e restauração local do SQLite.
 
 ### Motivo:
 Eliminar dependência de provedores de e-mail de terceiros, evitar exposição de chaves de API no cliente e priorizar backups físicos e locais em pendrive/storage seguro.

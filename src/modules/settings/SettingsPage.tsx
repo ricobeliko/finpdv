@@ -25,8 +25,6 @@ import {
   Trash2,
   RefreshCw,
   CloudDownload,
-  Mail,
-  Send,
   Loader2
 } from 'lucide-react';
 import { useSettingsStore } from './settingsStore';
@@ -52,8 +50,7 @@ export function SettingsPage() {
     updateSettings, 
     createBackup, 
     restoreBackup,
-    importBackup,
-    sendBackupEmail
+    importBackup
   } = useSettingsStore();
 
   const [activeTab, setActiveTab] = useState<'BACKUP' | 'STORE' | 'HARDWARE'>('HARDWARE');
@@ -64,7 +61,6 @@ export function SettingsPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [autostartActive, setAutostartActive] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [isSendingEmail, setIsSendingEmail] = useState(false);
 
   // Estado para o modal de zerar dados
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
@@ -219,30 +215,6 @@ export function SettingsPage() {
       if (err.message !== 'Dialog closed') {
         alert(`Falha na importação: ${err.message}`);
       }
-    }
-  };
-
-  const handleSendBackupEmail = async () => {
-    if (!formData.backupEmail || !formData.backupEmail.includes('@')) {
-      alert('Por favor, informe um endereço de e-mail válido nas configurações.');
-      return;
-    }
-    setIsSendingEmail(true);
-    try {
-      updateSettings({ 
-        backupEmail: formData.backupEmail,
-        resendApiKey: formData.resendApiKey 
-      });
-      const res = await sendBackupEmail(formData.backupEmail);
-      if (res.success) {
-        showToast(res.message);
-      } else {
-        alert(res.message);
-      }
-    } catch (err: any) {
-      alert(`Falha ao enviar backup por e-mail: ${err.message || err}`);
-    } finally {
-      setIsSendingEmail(false);
     }
   };
 
@@ -474,57 +446,6 @@ export function SettingsPage() {
               <div className="w-8 h-8 rounded-lg bg-emerald-50 text-primary flex items-center justify-center">
                 <ShieldCheck className="w-4 h-4" />
               </div>
-            </div>
-          </div>
-
-          {/* CARD DE SALVAGUARDA EXTERNA & ENVIO POR E-MAIL */}
-          <div className="bg-surface p-4 rounded-xl border border-slate-200 shadow-sm shrink-0 flex items-center justify-between gap-4">
-            <div className="space-y-0.5 max-w-md">
-              <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                <CloudDownload className="w-4 h-4 text-primary" />
-                <span>Salvaguarda Externa por E-mail</span>
-              </span>
-              <p className="text-[11px] text-textMuted leading-tight">
-                Digite o e-mail do proprietário. O sistema envia automaticamente a cópia de segurança na virada de cada mês.
-              </p>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <input
-                type="email"
-                placeholder="seuemail@gmail.com"
-                value={formData.backupEmail || ''}
-                onChange={(e) => setFormData({ ...formData, backupEmail: e.target.value })}
-                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs w-64 bg-slate-50 focus:bg-white focus:outline-none focus:border-primary font-medium"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  updateSettings({ backupEmail: formData.backupEmail });
-                  showToast('E-mail salvo com sucesso!');
-                }}
-                className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0"
-              >
-                Salvar E-mail
-              </button>
-              <button
-                type="button"
-                disabled={isSendingEmail}
-                onClick={handleSendBackupEmail}
-                className="bg-primary hover:bg-primary-hover disabled:bg-slate-400 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors shrink-0 shadow-sm"
-              >
-                {isSendingEmail ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Enviando...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Disparar Cópia</span>
-                  </>
-                )}
-              </button>
             </div>
           </div>
 
@@ -772,20 +693,26 @@ export function SettingsPage() {
               </div>
             )}
 
-            {updateStatus.state === 'DOWNLOADING' && (
-              <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl space-y-2 animate-fade-in">
-                <div className="flex items-center space-x-2 text-xs font-bold text-blue-900">
-                  <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
-                  <span>Baixando atualização ({updateStatus.progress}%)...</span>
+            {updateStatus.state === 'DOWNLOADING' && (() => {
+              const downloadProgressPercent = (updateStatus.totalBytes && updateStatus.totalBytes > 0)
+                ? Math.min(100, Math.round(((updateStatus.downloadedBytes || 0) / updateStatus.totalBytes) * 100))
+                : 0;
+
+              return (
+                <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl space-y-2 animate-fade-in">
+                  <div className="flex items-center space-x-2 text-xs font-bold text-blue-900">
+                    <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                    <span>Baixando atualização ({downloadProgressPercent}%)...</span>
+                  </div>
+                  <div className="w-full bg-blue-200 h-2 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-blue-600 h-full transition-all duration-300"
+                      style={{ width: `${downloadProgressPercent}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full bg-blue-200 h-2 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-blue-600 h-full transition-all duration-300"
-                    style={{ width: `${updateStatus.progress}%` }}
-                  />
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {updateStatus.state === 'DOWNLOADED' && (
               <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-xs text-emerald-900 font-bold flex items-center space-x-2 animate-fade-in">

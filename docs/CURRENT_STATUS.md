@@ -6,36 +6,42 @@
 
 ## 1. Dados do Repositório
 * **Versão do Projeto:** `0.1.16`
-* **Último Commit:** `ff829ab — feat(products): adicionar cadastro rapido e robusto por codigo de barras`
-* **Working Tree:** `MODIFICADO E VALIDADO` (Pronto para commit)
+* **Último Commit:** `4a7e629 — ci: adicionar validacao automatica do projeto`
+* **Working Tree:** `MODIFICADO E VALIDADO`
+* **CI Remoto (GitHub Actions):** `PASS (100% VERDE)`
 
 ---
 
-## 2. Ciclo Concluído: Remoção do Backup por E-mail (Resend) & Correção de Tipagem
+## 2. CI GitHub Actions: Ativo e Validado
 
-**Status:** `CONCLUÍDO (100% APROVADO)`
-
-* [x] **Remoção de Código Nativo Rust:** Removido o comando `send_resend_email` e a constante `EMBEDDED_RESEND_KEY` em `src-tauri/src/lib.rs`.
-* [x] **Remoção do GitHub Actions:** Removida a injeção da secret `RESEND_API_KEY` em `.github/workflows/release.yml`.
-* [x] **Remoção do Serviço Frontend:** Deletado `src/core/backup/emailBackupService.ts` e pasta vazia.
-* [x] **Remoção de UI & Store:** Removidos o card visual de envio de e-mail, estado `isSendingEmail`, handler `handleSendBackupEmail`, ação `sendBackupEmail` e propriedade `backupEmail`.
-* [x] **Preservação Integral do Backup Local:** Exportação de dump SQLite físico (`exportFullDatabaseDumpDb`), histórico de snapshots, download de `.json` e importação/restauração (`restoreBackup`) permanecem 100% funcionais.
-* [x] **Correção do Updater:** Corrigida a renderização de progresso de download (`downloadProgressPercent`) baseada em `downloadedBytes` e `totalBytes` de `UpdateStatus`.
-* [x] **Validação TypeScript:** `npx tsc --noEmit` passa com **0 erros** no projeto inteiro.
+* **Workflow:** `.github/workflows/ci.yml` (disparado em push/PR na branch `main` e `workflow_dispatch`).
+* **Runner:** `windows-latest`
+* **Baseline de Validação:**
+  * `npm ci` — `PASS`
+  * `npx tsc --noEmit` — `PASS (0 erros)`
+  * `npm run build` — `PASS`
+  * `cargo check --manifest-path src-tauri/Cargo.toml` — `PASS`
+  * `cargo clippy --manifest-path src-tauri/Cargo.toml` — `PASS`
 
 ---
 
-## 3. Validação Técnica Atual
+## 3. Resumo da Auditoria dos Fluxos Críticos (P0 / P1)
 
-| Validação | Resultado | Observação |
-|---|---|---|
-| **TypeScript (`npx tsc --noEmit`)** | `PASS` | **0 erros** no projeto inteiro. |
-| **Vite Production Build (`npm run build`)** | `PASS` | Build concluído com sucesso em 6.39s (`dist/`). |
-| **Rust Backend Check (`cargo check`)** | `PASS` | Compilação do binário Tauri 2 concluída com sucesso em 3.38s. |
-| **Rust Clippy (`cargo clippy`)** | `PASS` | 0 erros (apenas warnings legados de C-strings no winspooler). |
+A auditoria arquitetural em modo somente leitura mapeou riscos importantes na finalização de vendas:
+
+* **P0 — Ausência de Transação SQLite Única:** Venda, itens, estoque, movimentações e caixa ocorrem em queries desacopladas sem bloco atômico unificado.
+* **P0 — Risco de Duplicação em Retry:** Se a inserção da venda falhar após a baixa de estoque e crédito do caixa, nova tentativa pelo operador duplica as movimentações.
+* **P0 — Erros de Estoque Silenciados:** `deductStockFromSale` captura exceções com `console.error` sem relançar, permitindo concluir venda sem atualizar estoque no SQLite.
+* **P1 — Descarte de Métodos em Pagamentos Divididos:** Tabela `sales` armazena apenas uma string `payment_method` (primeiro método); valores e formas secundárias são descartados.
+* **P1 — Colisão de ID de Venda:** Geração de `saleId` aleatório de 6 dígitos pode sobrescrever vendas antigas devido a `ON CONFLICT(id) DO UPDATE`.
+* **P1 — Estorno com Hard DELETE:** Cancelamento apaga registros de `sales` e não cobre vendas eletrônicas nem estorna dados do cliente.
 
 ---
 
 ## 4. Próxima Etapa Planejada
 
-Reavaliar arquitetura e integridade dos fluxos de venda, caixa e estoque antes de adicionar novas funcionalidades.
+**Gate 1 — Evolução Segura do Schema Financeiro:**
+1. Criação da tabela relacional `sale_payments` para persistir todas as formas e valores de pagamentos múltiplos.
+2. Adição de colunas de controle de status e cancelamento (`status`, `cancelled_at`) na tabela `sales`.
+3. Estratégia determinística e segura de geração de ID de venda (UUID / Timestamp + Sequencial).
+4. Migrations idempotentes e compatíveis com bancos SQLite existentes.

@@ -167,7 +167,18 @@ Alinhar a transação ao modelo de domínio real de mercadorias sem SKU físico 
 ### Motivo:
 Garantir que atualizações de versão e execuções de migration pelo cliente possuam uma cópia de segurança física recuperável e íntegra de seu banco de dados anterior, protegendo contra perda acidental de dados sem sobrecarregar o armazenamento local.
 
+---
 
+## DEC-012 — Canal de Distribuição e Atualização via Tauri Updater Oficial
 
+**Status:** Ativa  
+**Data:** 2026-08-25  
 
+### Decisão:
+1. Atualizações de versão para clientes existentes devem utilizar prioritariamente o **Tauri Updater** oficial distribuído via GitHub Actions (`release.yml`), assinado com Minisign e indexado pelo manifesto `latest.json`.
+2. O identificador da aplicação (`com.merceariauber.pos`) e o caminho do banco de dados SQLite (`%APPDATA%\com.merceariauber.pos\mercado.db`) devem permanecer rigorosamente estáveis em todas as releases para garantir a preservação automática do banco dos clientes.
+3. O instalador NSIS opera em modo `currentUser` (`per-user`), instalando binários em `%LOCALAPPDATA%\Mercearia Uber` e mantendo isolamento completo por usuário do Windows.
+4. Antes de aplicar qualquer migração do frontend, a aplicação garante a integridade dos dados históricos através do backup pré-migration automático (`DEC-011`).
 
+### Motivo:
+Garantir um ciclo de entrega contínua sem atrito para o operador no ponto de venda, prevenindo corrupção de dados e eliminando a necessidade de procedimentos manuais de migração ou reinstalações limpas.

@@ -2440,6 +2440,7 @@ version = "0.1.16"
 dependencies = [
  "serde",
  "serde_json",
+ "sqlx",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",

@@ -9,7 +9,7 @@ interface CustomerState {
   addCustomer: (data: Omit<Customer, 'id' | 'totalSpentCents' | 'purchasesCount' | 'createdAt'>) => Promise<Customer>;
   updateCustomer: (id: string, data: Partial<Customer>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
-  recordCustomerSale: (customerId: string, totalCents: number, itemsCount: number, paymentMethod: string) => Promise<void>;
+  recordCustomerSale: (customerId: string, totalCents: number, itemsCount: number, paymentMethod: string, saleId?: string) => Promise<void>;
 }
 
 export const useCustomerStore = create<CustomerState>((set, get) => ({
@@ -84,7 +84,7 @@ export const useCustomerStore = create<CustomerState>((set, get) => ({
     }
   },
 
-  recordCustomerSale: async (customerId, totalCents, itemsCount, paymentMethod) => {
+  recordCustomerSale: async (customerId, totalCents, itemsCount, paymentMethod, saleId) => {
     let updatedCust: Customer | null = null;
 
     set((state) => {
@@ -92,12 +92,13 @@ export const useCustomerStore = create<CustomerState>((set, get) => ({
         if (c.id !== customerId) return c;
         const newHistory = [
           {
-            saleId: `CUPOM-${Math.floor(100000 + Math.random() * 900000)}`,
+            saleId: saleId || `CUPOM-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
             date: new Date().toLocaleString('pt-BR'),
             itemsCount,
             totalCents,
             paymentMethod
           },
+
           ...(c.purchasesHistory || [])
         ];
         updatedCust = {
@@ -111,6 +112,7 @@ export const useCustomerStore = create<CustomerState>((set, get) => ({
       });
       return { customers: updatedList };
     });
+
 
     if (updatedCust) {
       try {

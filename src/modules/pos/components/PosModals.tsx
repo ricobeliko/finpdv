@@ -219,7 +219,7 @@ export function PaymentModal({
     isFinalizingRef.current = true;
 
     const calculatedChange = currentTotalPaid > totalCents ? currentTotalPaid - totalCents : 0;
-    const saleId = `CUPOM-${Math.floor(100000 + Math.random() * 900000)}`;
+    const saleId = `CUPOM-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
 
     onFinishSale({
       id: saleId,
@@ -231,9 +231,11 @@ export function PaymentModal({
       totalCents,
       totalPaidCents: currentTotalPaid,
       changeCents: calculatedChange,
-      payments: payments
+      payments: payments,
+      status: 'COMPLETED'
     });
   };
+
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

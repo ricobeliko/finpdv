@@ -90,3 +90,22 @@ Toda evolução do sistema deve ser feita por etapas atômicas: investigar → d
 
 ### Motivo:
 Prevenir regressões em funcionalidades existentes de caixa e estoque e garantir controle seguro de versões.
+
+---
+
+## DEC-008 — Persistência Relacional de Pagamentos (sale_payments), IDs Robustos e Transações Nativas Rust
+
+**Status:** Ativa  
+**Data:** 2026-08-24  
+
+### Decisão:
+1. Pagamentos de vendas passam a ser persistidos de forma estruturada e relacional na tabela `sale_payments`, com chave estrangeira para `sales(id)`. A coluna `sales.payment_method` é preservada temporariamente como dado de compatibilidade legada.
+2. `sale_payments.amount_cents` representa o valor líquido aplicado à venda (troco é deduzido estritamente dos pagamentos em dinheiro, garantindo que a soma dos pagamentos coincida exatamente com o total líquido da venda).
+3. Vendas históricas legadas não recebem criação sintética de registros em `sale_payments`, preservando a integridade dos fatos comprovados.
+4. Transações financeiras críticas de persistência de venda (`sales + sale_items + sale_payments`) deixam de usar `BEGIN/COMMIT` desacoplados via JavaScript e passam a ser executadas através do comando Tauri Rust `save_sale_transaction`, utilizando conexão única adquirida do pool com `PRAGMA foreign_keys = ON` e `sqlx::Transaction` nativa.
+5. Identificadores de venda (`saleId`) adotam formato alfanumérico robusto baseado em timestamp e entropia (`CUPOM-<TIMESTAMP>-<ENTROPIA>`), com chave primária propagada de forma coerente para `customerStore` e `CashPage`.
+
+### Motivo:
+Garantir atomicidade física real (ACID), rastreabilidade contábil estrita de recebimentos mistos, proteção contra perda/sobrescrita de cupons e conformidade de integridade referencial no SQLite.
+
+

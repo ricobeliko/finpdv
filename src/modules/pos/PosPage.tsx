@@ -400,8 +400,9 @@ export function PosPage() {
 
       if (currentCustomer) {
         const mainPayment = sale.payments[0]?.method || 'DINHEIRO';
-        recordCustomerSale(currentCustomer.id, sale.totalCents, cartTotals.totalCount, mainPayment);
+        recordCustomerSale(currentCustomer.id, sale.totalCents, cartTotals.totalCount, mainPayment, sale.id);
       }
+
 
       await deductStockFromSale(
         sale.items.map(i => ({ productId: i.productId, quantity: i.quantity })),

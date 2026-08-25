@@ -1,18 +1,26 @@
+import { invoke } from '@tauri-apps/api/core';
 import Database from '@tauri-apps/plugin-sql';
 import { Product, Category, InventoryMovement } from '../../modules/products/types';
+
 import { CashSession, CashMovement, CashClosingSummary } from '../../modules/cash/types';
 import { Customer } from '../../modules/customers/types';
 import { Supplier, Purchase, PurchaseItem } from '../../modules/purchases/types';
+import { SalePayment } from '../../modules/pos/types';
 
 let dbInstance: Database | null = null;
+let tablesInitialized = false;
 
 export async function getDb(): Promise<Database> {
   if (!dbInstance) {
     dbInstance = await Database.load('sqlite:mercado.db');
+  }
+  if (!tablesInitialized) {
     await initTables(dbInstance);
+    tablesInitialized = true;
   }
   return dbInstance;
 }
+
 
 async function initTables(db: Database) {
   await db.execute('PRAGMA journal_mode = WAL;');
@@ -49,8 +57,11 @@ async function initTables(db: Database) {
       retail_price_cents INTEGER NOT NULL,
       current_stock REAL NOT NULL DEFAULT 0,
       min_stock REAL NOT NULL DEFAULT 0,
+      max_stock REAL,
       is_weighable INTEGER NOT NULL DEFAULT 0,
-      is_active INTEGER NOT NULL DEFAULT 1
+      is_open_price INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
     );
   `);
 
@@ -67,13 +78,13 @@ async function initTables(db: Database) {
     CREATE TABLE IF NOT EXISTS product_tier_prices (
       id TEXT PRIMARY KEY,
       product_id TEXT NOT NULL,
-      min_quantity INTEGER NOT NULL,
+      min_quantity REAL NOT NULL,
       price_cents INTEGER NOT NULL,
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
     );
   `);
 
-  // 2. CAIXA
+  // 2. SESSÕES DE CAIXA E MOVIMENTAÇÕES
   await db.execute(`
     CREATE TABLE IF NOT EXISTS cash_sessions (
       id TEXT PRIMARY KEY,
@@ -92,10 +103,6 @@ async function initTables(db: Database) {
       notes TEXT
     );
   `);
-
-  try {
-    await db.execute('ALTER TABLE cash_sessions ADD COLUMN notes TEXT;');
-  } catch (_) {}
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS cash_movements (
@@ -123,6 +130,8 @@ async function initTables(db: Database) {
       total_cents INTEGER NOT NULL,
       change_cents INTEGER NOT NULL DEFAULT 0,
       payment_method TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'COMPLETED',
+      cancelled_at TEXT,
       created_at TEXT NOT NULL
     );
   `);
@@ -141,7 +150,36 @@ async function initTables(db: Database) {
     );
   `);
 
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS sale_payments (
+      id TEXT PRIMARY KEY,
+      sale_id TEXT NOT NULL,
+      method TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+    );
+  `);
+
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_sale_payments_sale_id ON sale_payments(sale_id);
+  `);
+
+  // Migrations idempotentes de colunas em sales para bancos existentes
+  try {
+    await db.execute(`ALTER TABLE sales ADD COLUMN status TEXT NOT NULL DEFAULT 'COMPLETED';`);
+  } catch (_) {}
+
+  try {
+    await db.execute(`ALTER TABLE sales ADD COLUMN cancelled_at TEXT;`);
+  } catch (_) {}
+
+  try {
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(status);`);
+  } catch (_) {}
+
   // 4. MOVIMENTAÇÕES DE ESTOQUE
+
   await db.execute(`
     CREATE TABLE IF NOT EXISTS inventory_movements (
       id TEXT PRIMARY KEY,
@@ -198,17 +236,10 @@ async function initTables(db: Database) {
       supplier_name TEXT NOT NULL,
       invoice_number TEXT,
       total_cents INTEGER NOT NULL,
-      status TEXT NOT NULL,
-      received_at TEXT,
-      notes TEXT,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
     );
   `);
-
-  try {
-    await db.execute('ALTER TABLE purchases ADD COLUMN order_number TEXT;');
-    await db.execute('ALTER TABLE purchases ADD COLUMN received_at TEXT;');
-  } catch (_) {}
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS purchase_items (
@@ -224,6 +255,8 @@ async function initTables(db: Database) {
       FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE
     );
   `);
+
+
 }
 
 // ============================================================
@@ -434,54 +467,116 @@ export async function updateCashMovementDb(id: string, type: string, reason: str
 // ============================================================
 
 export async function saveSaleDb(sale: any) {
-  const db = await getDb();
-  const mainPayment = sale.payments?.[0]?.method || sale.payment_method || 'CASH';
+  if (!sale || !sale.id) {
+    throw new Error('Dados da venda inválidos.');
+  }
 
-  await db.execute(
-    `INSERT INTO sales (id, session_id, user_id, customer_id, customer_name, subtotal_cents, discount_cents, total_cents, change_cents, payment_method, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-     ON CONFLICT(id) DO UPDATE SET
-       subtotal_cents = excluded.subtotal_cents,
-       discount_cents = excluded.discount_cents,
-       total_cents = excluded.total_cents,
-       change_cents = excluded.change_cents,
-       payment_method = excluded.payment_method`,
-    [
-      sale.id,
-      sale.sessionId || sale.session_id || null,
-      sale.userId || sale.user_id || null,
-      sale.customer?.id || sale.customer_id || null,
-      sale.customer?.name || sale.customer_name || 'Consumidor',
-      sale.subtotalCents ?? sale.subtotal_cents ?? sale.totalCents ?? 0,
-      sale.discountCents ?? sale.discount_cents ?? 0,
-      sale.totalCents ?? sale.total_cents ?? 0,
-      sale.changeCents ?? sale.change_cents ?? 0,
-      mainPayment,
-      sale.date || sale.created_at || new Date().toLocaleString('pt-BR')
-    ]
-  );
+  const items = sale.items;
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    throw new Error('A venda deve conter pelo menos 1 item.');
+  }
 
-  if (sale.items && Array.isArray(sale.items)) {
-    for (const item of sale.items) {
-      await db.execute(
-        `INSERT INTO sale_items (id, sale_id, product_id, product_name, quantity, unit_price_cents, cost_price_cents, total_cents)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT(id) DO UPDATE SET
-           quantity = excluded.quantity,
-           total_cents = excluded.total_cents`,
-        [
-          item.id || `si-${Date.now()}-${Math.random()}`,
-          sale.id,
-          item.productId || item.product_id,
-          item.name || item.product_name,
-          item.quantity,
-          item.unitPriceCents ?? item.unit_price_cents ?? 0,
-          item.costPriceCents ?? item.cost_price_cents ?? 0,
-          item.totalCents ?? item.total_cents ?? 0
-        ]
-      );
+  const rawPayments = sale.payments;
+  if (!rawPayments || !Array.isArray(rawPayments) || rawPayments.length === 0) {
+    throw new Error('A venda deve conter pelo menos 1 forma de pagamento.');
+  }
+
+  const totalCents = sale.totalCents ?? sale.total_cents ?? 0;
+  const changeCents = sale.changeCents ?? sale.change_cents ?? 0;
+
+  // Normalização do troco: o troco é deduzido estritamente dos pagamentos em dinheiro (CASH)
+  let remainingChange = changeCents;
+  const normalizedPayments: Array<{ id: string; method: string; amountCents: number }> = [];
+
+  for (let i = 0; i < rawPayments.length; i++) {
+    const p = rawPayments[i];
+    let netAmount = p.amountCents ?? p.amount_cents ?? 0;
+
+    if (typeof netAmount !== 'number' || netAmount <= 0) {
+      throw new Error(`Valor de pagamento inválido (${netAmount}).`);
+    }
+
+    if (p.method === 'CASH' && remainingChange > 0) {
+      if (netAmount >= remainingChange) {
+        netAmount -= remainingChange;
+        remainingChange = 0;
+      } else {
+        remainingChange -= netAmount;
+        netAmount = 0;
+      }
+    }
+
+    if (netAmount > 0) {
+      normalizedPayments.push({
+        id: p.id || `pay-${sale.id}-${i}-${Date.now().toString(36)}`,
+        method: p.method,
+        amountCents: netAmount
+      });
     }
   }
+
+  if (remainingChange > 0) {
+    throw new Error(`Troco de R$ ${(changeCents / 100).toFixed(2)} excede o total pago em dinheiro.`);
+  }
+
+  const totalNormalized = normalizedPayments.reduce((sum, p) => sum + p.amountCents, 0);
+  if (totalNormalized !== totalCents) {
+    throw new Error(`Soma dos pagamentos líquidos (${totalNormalized}) difere do total da venda (${totalCents}).`);
+  }
+
+  const mainPayment = rawPayments[0]?.method || sale.payment_method || 'CASH';
+  const saleStatus = sale.status || 'COMPLETED';
+  const cancelledAt = sale.cancelledAt || null;
+  const createdAt = sale.date || sale.created_at || new Date().toLocaleString('pt-BR');
+
+  // Garante que o banco SQLite esteja aberto antes de invocar a transação Rust
+  await getDb();
+
+  const payload = {
+    id: sale.id,
+    sessionId: sale.sessionId || sale.session_id || null,
+    userId: sale.userId || sale.user_id || null,
+    customerId: sale.customer?.id || sale.customerId || sale.customer_id || null,
+    customerName: sale.customer?.name || sale.customerName || sale.customer_name || 'Consumidor',
+    subtotalCents: sale.subtotalCents ?? sale.subtotal_cents ?? totalCents,
+    discountCents: sale.discountCents ?? sale.discount_cents ?? 0,
+    totalCents,
+    changeCents,
+    paymentMethod: mainPayment,
+    status: saleStatus,
+    cancelledAt,
+    createdAt,
+    items: items.map((item: any, i: number) => ({
+      id: item.id || `si-${sale.id}-${i}-${Date.now()}`,
+      productId: item.productId || item.product_id,
+      productName: item.name || item.product_name || 'Produto',
+      quantity: Number(item.quantity) || 1,
+      unitPriceCents: item.unitPriceCents ?? item.unit_price_cents ?? 0,
+      costPriceCents: item.costPriceCents ?? item.cost_price_cents ?? 0,
+      totalCents: item.totalCents ?? item.total_cents ?? 0
+    })),
+    payments: normalizedPayments
+  };
+
+  try {
+    await invoke('save_sale_transaction', { sale: payload });
+  } catch (err) {
+    console.error('Erro na persistência transacional da venda:', err);
+    throw err;
+  }
+}
+
+
+export async function getSalePaymentsDb(saleId: string): Promise<SalePayment[]> {
+  const db = await getDb();
+  const rows = await db.select<any[]>(
+    `SELECT id, sale_id as saleId, method, amount_cents as amountCents, created_at as createdAt
+     FROM sale_payments
+     WHERE sale_id = $1
+     ORDER BY created_at ASC`,
+    [saleId]
+  );
+  return rows || [];
 }
 
 export async function cancelSaleDb(saleId: string): Promise<void> {
@@ -496,6 +591,7 @@ export async function loadSalesDb() {
 }
 
 export const getSalesDb = loadSalesDb;
+
 
 // ============================================================
 // PRODUTOS & ESTOQUE
@@ -1022,6 +1118,7 @@ export interface FullDatabaseDump {
     categories: number;
     sales: number;
     saleItems: number;
+    salePayments?: number;
     cashSessions: number;
     cashMovements: number;
     inventoryMovements: number;
@@ -1039,6 +1136,7 @@ export interface FullDatabaseDump {
     cashMovements: any[];
     sales: any[];
     saleItems: any[];
+    salePayments?: any[];
     inventoryMovements: any[];
     customers: any[];
     suppliers: any[];
@@ -1059,6 +1157,7 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
     cashMovements,
     sales,
     saleItems,
+    salePayments,
     inventoryMovements,
     customers,
     suppliers,
@@ -1073,6 +1172,7 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
     db.select<any[]>('SELECT * FROM cash_movements').catch(() => []),
     db.select<any[]>('SELECT * FROM sales').catch(() => []),
     db.select<any[]>('SELECT * FROM sale_items').catch(() => []),
+    db.select<any[]>('SELECT * FROM sale_payments').catch(() => []),
     db.select<any[]>('SELECT * FROM inventory_movements').catch(() => []),
     db.select<any[]>('SELECT * FROM customers').catch(() => []),
     db.select<any[]>('SELECT * FROM suppliers').catch(() => []),
@@ -1089,6 +1189,7 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
       categories: categories.length,
       sales: sales.length,
       saleItems: saleItems.length,
+      salePayments: salePayments.length,
       cashSessions: cashSessions.length,
       cashMovements: cashMovements.length,
       inventoryMovements: inventoryMovements.length,
@@ -1106,6 +1207,7 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
       cashMovements,
       sales,
       saleItems,
+      salePayments,
       inventoryMovements,
       customers,
       suppliers,
@@ -1114,6 +1216,7 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
     }
   };
 }
+
 
 export async function restoreFullDatabaseDumpDb(dump: FullDatabaseDump): Promise<{ success: boolean; message: string }> {
   if (!dump || !dump.data) {
@@ -1249,14 +1352,16 @@ export async function restoreFullDatabaseDumpDb(dump: FullDatabaseDump): Promise
   if (Array.isArray(d.sales)) {
     for (const s of d.sales) {
       await db.execute(
-        `INSERT INTO sales (id, session_id, user_id, customer_id, customer_name, subtotal_cents, discount_cents, total_cents, change_cents, payment_method, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO sales (id, session_id, user_id, customer_id, customer_name, subtotal_cents, discount_cents, total_cents, change_cents, payment_method, status, cancelled_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT(id) DO UPDATE SET
            subtotal_cents = excluded.subtotal_cents,
            discount_cents = excluded.discount_cents,
            total_cents = excluded.total_cents,
            change_cents = excluded.change_cents,
-           payment_method = excluded.payment_method`,
+           payment_method = excluded.payment_method,
+           status = excluded.status,
+           cancelled_at = excluded.cancelled_at`,
         [
           s.id,
           s.session_id,
@@ -1268,6 +1373,8 @@ export async function restoreFullDatabaseDumpDb(dump: FullDatabaseDump): Promise
           s.total_cents,
           s.change_cents,
           s.payment_method,
+          s.status || 'COMPLETED',
+          s.cancelled_at || null,
           s.created_at
         ]
       ).catch(() => {});
@@ -1292,6 +1399,24 @@ export async function restoreFullDatabaseDumpDb(dump: FullDatabaseDump): Promise
           si.unit_price_cents,
           si.cost_price_cents,
           si.total_cents
+        ]
+      ).catch(() => {});
+    }
+  }
+
+  // Restaura pagamentos de vendas
+  if (Array.isArray(d.salePayments)) {
+    for (const p of d.salePayments) {
+      await db.execute(
+        `INSERT INTO sale_payments (id, sale_id, method, amount_cents, created_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT(id) DO NOTHING`,
+        [
+          p.id,
+          p.sale_id,
+          p.method,
+          p.amount_cents,
+          p.created_at || new Date().toISOString()
         ]
       ).catch(() => {});
     }

@@ -87,9 +87,10 @@ export function CashPage() {
     if (m.id.startsWith('mov-sale-')) {
       saleId = m.id.replace('mov-sale-', '');
     } else {
-      const match = m.reason.match(/CUPOM-\d+/);
-      if (match) saleId = match[0];
+      const match = m.reason.match(/CUPOM-[A-Z0-9_-]+/i) || m.reason.match(/#([A-Z0-9_-]+)/i);
+      if (match) saleId = match[1] || match[0];
     }
+
 
     const items = saleId ? saleItemsMap[saleId] : undefined;
 

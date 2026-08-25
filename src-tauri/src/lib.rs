@@ -153,6 +153,8 @@ fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
     }
 }
 
+mod sale_transaction;
+
 // 3. PULSO PARA ABRIR GAVETA DE DINHEIRO (RJ11)
 #[tauri::command]
 fn open_cash_drawer(printer_name: String) -> Result<(), String> {
@@ -174,8 +176,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_printers, 
             print_raw_escpos, 
-            open_cash_drawer
+            open_cash_drawer,
+            sale_transaction::save_sale_transaction
         ])
         .run(tauri::generate_context!())
         .expect("erro ao executar aplicação tauri");
-}
+}

@@ -38,10 +38,26 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
 
 ---
 
-## 4. Próxima Etapa Planejada
+## 4. Gate 1 — Evolução Segura do Schema Financeiro & Transação Nativa Rust: VALIDADO
 
-**Gate 1 — Evolução Segura do Schema Financeiro:**
-1. Criação da tabela relacional `sale_payments` para persistir todas as formas e valores de pagamentos múltiplos.
-2. Adição de colunas de controle de status e cancelamento (`status`, `cancelled_at`) na tabela `sales`.
-3. Estratégia determinística e segura de geração de ID de venda (UUID / Timestamp + Sequencial).
-4. Migrations idempotentes e compatíveis com bancos SQLite existentes.
+* [x] **Tabela Relacional `sale_payments`:** Criada com FK para `sales(id) ON DELETE CASCADE` e índice em `sale_id`.
+* [x] **Preparação para Soft Cancel:** Adicionadas colunas `status` (DEFAULT 'COMPLETED') e `cancelled_at` na tabela `sales`.
+* [x] **Nova Estratégia de ID de Venda:** Geração de `saleId` robusto (`CUPOM-<TIMESTAMP>-<ENTROPIA>`) com `crypto.randomUUID()`. ID propagado para `customerStore` e reconhecido na `CashPage`. Inserção via `INSERT` limpo sem `ON CONFLICT DO UPDATE`.
+* [x] **Transação Nativa Rust (`save_sale_transaction`):** Persistência de `sales`, `sale_items` e `sale_payments` executada em conexão única adquirida do pool com `PRAGMA foreign_keys = ON` e `sqlx::Transaction` nativa com rollback automático em caso de erro.
+* [x] **Semântica Líquida de Pagamentos:** `sale_payments.amount_cents` armazena o valor líquido aplicado à venda (troco em dinheiro deduzido), assegurando que `SUM(amount_cents) == sales.total_cents`.
+* [x] **Integridade do Histórico Legado:** Remoção do backfill sintético para manter integridade dos dados históricos comprovados.
+* [x] **Compatibilidade de Backup:** Estrutura `salePayments` integrada em `exportFullDatabaseDumpDb` e `restoreFullDatabaseDumpDb` com suporte retrocompatível a backups legados.
+* [x] **Validações Técnicas:** `npx tsc --noEmit` PASS (0 erros), `npm run build` PASS, `cargo check` PASS, `cargo clippy` PASS, `cargo test` PASS (3 unit tests), validação em runtime SQLite PASS.
+* [!] **Dívida Técnica Conhecida:** Foreign Keys são garantidas rigorosamente na conexão transacional Rust da venda (`save_sale_transaction`), mas ainda não são garantidas globalmente em todas as conexões abertas genericamente via JavaScript no `@tauri-apps/plugin-sql`.
+
+
+
+---
+
+## 5. Próxima Etapa Planejada (Gate 2)
+
+**Gate 2 — Transação Global de Finalização da Venda:**
+1. Orquestração atômica unificada envolvendo venda, itens, pagamentos, estoque (`products` + `inventory_movements`), caixa (`cash_movements` + `cash_sessions`) e cliente (`customers`).
+2. Eliminação do silenciamento de erros de estoque (`deductStockFromSale`).
+3. Rollback global compensatório em caso de qualquer falha no checkout.
+

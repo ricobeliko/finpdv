@@ -1,6 +1,7 @@
 import { Product, UnitMeasure } from '../products/types';
 
 export type PaymentMethod = 'CASH' | 'PIX' | 'DEBIT' | 'CREDIT';
+export type SaleStatus = 'COMPLETED' | 'CANCELLED';
 
 export interface CartItem {
   id: string;
@@ -26,6 +27,14 @@ export interface PaymentEntry {
   amountCents: number;
 }
 
+export interface SalePayment {
+  id: string;
+  saleId: string;
+  method: PaymentMethod;
+  amountCents: number;
+  createdAt: string;
+}
+
 export interface SuspendedSale {
   id: string;
   cart: CartItem[];
@@ -47,4 +56,8 @@ export interface CompletedSale {
   totalPaidCents: number;
   changeCents: number;
   payments: PaymentEntry[];
-}
+  status?: SaleStatus;
+  cancelledAt?: string | null;
+  sessionId?: string | null;
+  userId?: string | null;
+}

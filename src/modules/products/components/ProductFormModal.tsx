@@ -162,7 +162,8 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
         if (!isNameManuallyEditedRef.current || !name.trim()) {
           setName(result.name);
         }
-        setLookupMessage(`Produto identificado: ${result.name}`);
+        const sourceLabel = result.source === 'COSMOS' ? 'via Bluesoft Cosmos' : 'via Open Food Facts';
+        setLookupMessage(`Produto identificado ${sourceLabel}: ${result.name}`);
 
         // Sugestão de categoria (apenas se o operador NÃO alterou a categoria manualmente)
         if (result.categorySuggestion && !isCategoryManuallyEditedRef.current) {

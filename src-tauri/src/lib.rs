@@ -153,6 +153,7 @@ fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
     }
 }
 
+mod cosmos_lookup;
 mod sale_cancellation;
 mod sale_transaction;
 
@@ -235,7 +236,8 @@ pub fn run() {
             print_raw_escpos, 
             open_cash_drawer,
             sale_transaction::save_sale_transaction,
-            sale_cancellation::cancel_sale_transaction
+            sale_cancellation::cancel_sale_transaction,
+            cosmos_lookup::lookup_cosmos_gtin
         ])
         .run(tauri::generate_context!())
         .expect("erro ao executar aplicação tauri");

@@ -25,7 +25,9 @@ import {
   Trash2,
   RefreshCw,
   CloudDownload,
-  Loader2
+  Loader2,
+  Barcode,
+  Globe
 } from 'lucide-react';
 import { useSettingsStore } from './settingsStore';
 import { BackupRecord } from './types';
@@ -622,6 +624,86 @@ export function SettingsPage() {
               </button>
             </div>
           </form>
+
+          {/* CONSULTA AUTOMÁTICA DE PRODUTOS (BLUESOFT COSMOS & OPEN FOOD FACTS) */}
+          <div className="bg-surface rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                  <Barcode className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-textMain">Consulta Automática de Produtos</h3>
+                  <p className="text-xs text-textMuted">Identificação automática de descrição e categoria ao bipar códigos de barras.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-bold text-textMain">Usar Bluesoft Cosmos como base primária</p>
+                  <p className="text-[11px] text-textMuted">
+                    Se desabilitado ou sem credenciais, o sistema usará o Open Food Facts automaticamente como fallback gratuito.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={formData.cosmosEnabled || false}
+                  onChange={(e) => setFormData({ ...formData, cosmosEnabled: e.target.checked })}
+                  className="w-5 h-5 text-primary rounded focus:ring-primary cursor-pointer accent-primary"
+                />
+              </div>
+
+              {formData.cosmosEnabled && (
+                <div className="space-y-3 pt-3 border-t border-slate-200 animate-fade-in">
+                  <div>
+                    <label className="block text-xs font-semibold text-textMuted uppercase mb-1">
+                      Token de Acesso (X-Cosmos-Token)
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      placeholder="Insira seu token da API Bluesoft Cosmos"
+                      value={formData.cosmosToken || ''}
+                      onChange={(e) => setFormData({ ...formData, cosmosToken: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono bg-surface"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Armazenado localmente neste terminal. Não é compartilhado nem enviado no backup relacional.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-textMuted uppercase mb-1">
+                      User-Agent HTTP (Identificação da Aplicação)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="MercadoPOS"
+                      value={formData.cosmosUserAgent || ''}
+                      onChange={(e) => setFormData({ ...formData, cosmosUserAgent: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-surface"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  updateSettings(formData);
+                  showToast('Configurações de consulta de produtos salvas!');
+                }}
+                className="bg-primary hover:bg-primary-hover text-white px-6 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow"
+              >
+                <Save className="w-4 h-4" />
+                <span>Salvar Configurações de Consulta</span>
+              </button>
+            </div>
+          </div>
 
           {/* ATUALIZAÇÕES REMOTAS (AUTO-UPDATER) */}
           <div className="bg-surface rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">

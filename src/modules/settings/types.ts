@@ -29,4 +29,7 @@ export interface StoreSettings {
   scalePort: string;      // COM1, COM3, etc.
   autoBackupDaily: boolean;
   autoBackupMonthly?: boolean;
+  cosmosEnabled?: boolean;
+  cosmosToken?: string;
+  cosmosUserAgent?: string;
 }

@@ -35,6 +35,9 @@ const defaultSettings: StoreSettings = {
   scaleBaudRate: 9600,
   autoBackupDaily: true,
   autoBackupMonthly: true,
+  cosmosEnabled: false,
+  cosmosToken: '',
+  cosmosUserAgent: 'MercadoPOS',
 };
 
 function triggerBrowserDownload(filename: string, content: string) {

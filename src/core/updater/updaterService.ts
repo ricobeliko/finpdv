@@ -96,3 +96,57 @@ export async function installAndRestartApp(onProgress?: (status: UpdateStatus) =
     }
   }
 }
+
+/**
+ * Converte notas de release em formato markdown / texto em uma lista limpa de itens de destaque.
+ */
+export function parseReleaseHighlights(body?: string, version?: string): string[] {
+  if (body) {
+    const lines = body
+      .split(/[\r\n]+/)
+      .map((l) =>
+        l
+          .trim()
+          .replace(/^[-*•]\s*/, '')
+          .replace(/^#{1,6}\s*/, '')
+          .replace(/^feat(\([^)]+\))?:\s*/i, '')
+          .replace(/^fix(\([^)]+\))?:\s*/i, '')
+          .replace(/^chore(\([^)]+\))?:\s*/i, '')
+      )
+      .filter((l) => l.length > 3 && !l.toLowerCase().includes('atualização automática'));
+
+    if (lines.length > 0) {
+      return lines.slice(0, 6);
+    }
+  }
+
+  // Catálogo de novidades por versão como fallback inteligente
+  if (version) {
+    const cleanVersion = version.replace(/^v/, '').trim();
+    if (cleanVersion === '0.2.2' || cleanVersion === '0.2.1') {
+      return [
+        'Consulta de produtos via Bluesoft Cosmos por código de barras',
+        'Classificação inteligente de categorias sem falso positivo',
+        'Suporte à tecla ESC no modal de cadastro e edição de produtos',
+        'Relatório dinâmico de novidades no assistente de atualização',
+        'Fallback automático para Open Food Facts e cadastro manual'
+      ];
+    }
+    if (cleanVersion === '0.2.0') {
+      return [
+        'Novo motor transacional SQLite nativo em Rust',
+        'Soft Cancel total nas vendas com estorno atômico de caixa e estoque',
+        'Suporte oficial a Open Price / Varejo Diversos no PDV (código 1)',
+        'Backup pré-migração automático e proteção de dados históricos'
+      ];
+    }
+  }
+
+  return [
+    'Melhorias de desempenho e estabilidade do sistema',
+    'Auditoria e integridade de estoque em tempo real',
+    'Segurança e consistência nas operações de PDV',
+    'Backup automático de segurança'
+  ];
+}
+

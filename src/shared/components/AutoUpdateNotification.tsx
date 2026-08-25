@@ -1,33 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Download, RefreshCw, X, CheckCircle2, AlertCircle, ArrowUpCircle } from 'lucide-react';
-import { checkForAppUpdates, installAndRestartApp, UpdateStatus } from '../../core/updater/updaterService';
-
-function parseReleaseHighlights(body?: string): string[] {
-  if (!body) {
-    return [
-      'Backup físico completo e salvaguarda por e-mail',
-      'Auditoria e histórico de estoque nas vendas',
-      'Livro Razão com produtos em destaque',
-      'Fechamento automático de caixa silencioso'
-    ];
-  }
-
-  const lines = body
-    .split(/[\r\n]+/)
-    .map((l) => l.trim().replace(/^[-*•]\s*/, '').replace(/^feat(\([^)]+\))?:\s*/i, '').replace(/^fix(\([^)]+\))?:\s*/i, ''))
-    .filter((l) => l.length > 4 && !l.toLowerCase().includes('atualização automática'));
-
-  if (lines.length === 0) {
-    return [
-      'Backup físico completo e salvaguarda por e-mail',
-      'Auditoria e histórico de estoque nas vendas',
-      'Livro Razão com produtos em destaque',
-      'Fechamento automático de caixa silencioso'
-    ];
-  }
-
-  return lines.slice(0, 4);
-}
+import { checkForAppUpdates, installAndRestartApp, parseReleaseHighlights, UpdateStatus } from '../../core/updater/updaterService';
 
 export function AutoUpdateNotification() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'IDLE' });
@@ -79,7 +52,7 @@ export function AutoUpdateNotification() {
 
   const downloadedMB = ((updateStatus.downloadedBytes || 0) / (1024 * 1024)).toFixed(1);
   const totalMB = ((updateStatus.totalBytes || 0) / (1024 * 1024)).toFixed(1);
-  const highlights = parseReleaseHighlights(updateStatus.body);
+  const highlights = parseReleaseHighlights(updateStatus.body, updateStatus.version);
 
   return (
     <aside aria-label="Notificação de Atualização" className="fixed bottom-6 right-6 z-50 max-w-md w-full animate-slide-up shadow-2xl rounded-2xl border border-emerald-500/40 bg-slate-900/95 backdrop-blur-md text-white p-5 select-none font-sans overflow-hidden">

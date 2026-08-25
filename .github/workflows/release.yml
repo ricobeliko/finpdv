@@ -45,6 +45,30 @@ jobs:
           RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           RAW_PASS: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Extract Release Notes
+        id: notes
+        shell: node {0}
+        run: |
+          const fs = require('fs');
+          let notes = '';
+          if (fs.existsSync('RELEASE_NOTES.md')) {
+            const content = fs.readFileSync('RELEASE_NOTES.md', 'utf-8');
+            const tag = '${{ github.ref_name }}';
+            const version = tag.replace(/^v/, '');
+            const regex = new RegExp(`##\\s*\\[?v?${version}\\]?[^\\n]*\\n([\\s\\S]*?)(?=\\n##|$)`, 'i');
+            const match = content.match(regex);
+            if (match && match[1].trim()) {
+              notes = match[1].trim();
+            } else {
+              notes = content.trim();
+            }
+          }
+          if (!notes) {
+            notes = '- Consulta de produtos via Bluesoft Cosmos por código de barras\n- Classificação inteligente de categorias sem falso positivo\n- Suporte à tecla ESC no modal de cadastro e edição de produtos\n- Relatório dinâmico de novidades no assistente de atualização\n- Melhorias de estabilidade e desempenho';
+          }
+          const delimiter = 'EOF_' + Math.random().toString(36).substring(2);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `body<<${delimiter}\n${notes}\n${delimiter}\n`);
+
       - name: Build Tauri App & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -52,8 +76,9 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Mercearia Uber ${{ github.ref_name }}'
-          releaseBody: 'Atualização automática do sistema Mercearia Uber.'
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+

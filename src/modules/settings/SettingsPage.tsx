@@ -33,7 +33,7 @@ import { useSettingsStore } from './settingsStore';
 import { BackupRecord } from './types';
 import { RestoreConfirmModal } from './components/RestoreConfirmModal';
 import { getInstalledPrinters, testPrinter, triggerDrawer } from '../../core/hardware/printer';
-import { checkForAppUpdates, installAndRestartApp, UpdateStatus } from '../../core/updater/updaterService';
+import { checkForAppUpdates, installAndRestartApp, parseReleaseHighlights, UpdateStatus } from '../../core/updater/updaterService';
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 Bytes';
@@ -743,22 +743,12 @@ export function SettingsPage() {
                         Melhorias e Novidades:
                       </p>
                       <ul className="text-xs text-slate-700 space-y-1">
-                        <li className="flex items-center space-x-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>Backup físico completo e salvaguarda por e-mail</span>
-                        </li>
-                        <li className="flex items-center space-x-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>Auditoria e histórico de estoque em tempo real nas vendas</span>
-                        </li>
-                        <li className="flex items-center space-x-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>Fechamento automático de caixa sem interrupção do PDV</span>
-                        </li>
-                        <li className="flex items-center space-x-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>Modo Quiosque (Tela Cheia PDV) nativo</span>
-                        </li>
+                        {parseReleaseHighlights(updateStatus.body, updateStatus.version).map((item, idx) => (
+                          <li key={idx} className="flex items-center space-x-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
                       </ul>
                     </div>
                   </div>

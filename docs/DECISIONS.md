@@ -150,6 +150,24 @@ Eliminar perda irreversível de histórico financeiro, prevenir inconsistências
 ### Motivo:
 Alinhar a transação ao modelo de domínio real de mercadorias sem SKU físico individual, evitando a fabricação de estoques e movimentações sintéticas desnecessárias sem enfraquecer a integridade relacional dos produtos normais.
 
+---
+
+## DEC-011 — Backup Pré-Migration Automático e Idempotente no Bootstrap Rust
+
+**Status:** Ativa  
+**Data:** 2026-08-24  
+
+### Decisão:
+1. Toda inicialização da aplicação executa, no hook `setup` do Tauri Rust (antes da inicialização do WebView e da abertura do SQLite pelo frontend), a rotina de segurança `create_pre_migration_backup_in_dir`.
+2. Se `mercado.db` existir no diretório de dados do app e o arquivo versionado `mercado-pre-migration-v<VERSAO>.db` ainda não existir, o sistema cria automaticamente um snapshot consistente usando a instrução atômica do SQLite `VACUUM INTO '<TARGET>'`.
+3. O uso de `VACUUM INTO` garante compatibilidade nativa com WAL/SHM, desfragmentação de páginas e integridade física completa do arquivo de backup (`PRAGMA integrity_check = ok`).
+4. A operação é 100% idempotente por versão: execuções subsequentes na mesma versão não duplicam nem sobrescrevem o arquivo de backup existente.
+5. Em novas instalações limpas (onde `mercado.db` ainda não existe), a rotina não executa nenhuma ação.
+
+### Motivo:
+Garantir que atualizações de versão e execuções de migration pelo cliente possuam uma cópia de segurança física recuperável e íntegra de seu banco de dados anterior, protegendo contra perda acidental de dados sem sobrecarregar o armazenamento local.
+
+
 
 
 

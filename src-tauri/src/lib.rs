@@ -163,9 +163,65 @@ fn open_cash_drawer(printer_name: String) -> Result<(), String> {
     print_raw_escpos(printer_name, drawer_pulse)
 }
 
+/// Cria um snapshot consistente e desfragmentado de mercado.db antes de migrations estruturais.
+/// Idempotente por versão: se o backup da versão atual já existir, não sobrescreve nem duplica.
+pub fn create_pre_migration_backup_in_dir(
+    app_data_dir: &std::path::Path,
+    version: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let db_path = app_data_dir.join("mercado.db");
+    if !db_path.exists() {
+        return Ok(None);
+    }
+
+    let backup_filename = format!("mercado-pre-migration-v{}.db", version);
+    let backup_path = app_data_dir.join(&backup_filename);
+
+    if backup_path.exists() {
+        return Ok(Some(backup_path));
+    }
+
+    let db_str = db_path.to_string_lossy().replace('\\', "/");
+    let backup_str = backup_path.to_string_lossy().replace('\\', "/");
+    let db_url = format!("sqlite://{}", db_str);
+
+    tauri::async_runtime::block_on(async {
+        use sqlx::sqlite::SqliteConnectOptions;
+        use sqlx::ConnectOptions;
+        use std::str::FromStr;
+
+        let opts = SqliteConnectOptions::from_str(&db_url)
+            .map_err(|e| format!("Erro ao configurar conexão para backup: {}", e))?
+            .read_only(true);
+
+        let mut conn = opts
+            .connect()
+            .await
+            .map_err(|e| format!("Erro ao conectar no banco para backup: {}", e))?;
+
+        let query = format!("VACUUM INTO '{}'", backup_str);
+        sqlx::query(&query)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| format!("Erro ao executar VACUUM INTO: {}", e))?;
+
+        Ok::<Option<std::path::PathBuf>, String>(Some(backup_path))
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            use tauri::Manager;
+            if let Ok(app_data_dir) = app.path().app_data_dir() {
+                let version = app.package_info().version.to_string();
+                if let Err(err) = create_pre_migration_backup_in_dir(&app_data_dir, &version) {
+                    eprintln!("Aviso: falha ao criar backup pré-migration: {}", err);
+                }
+            }
+            Ok(())
+        })
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
@@ -184,4 +240,90 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("erro ao executar aplicação tauri");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_pre_migration_backup_nonexistent_db_returns_none() {
+        let temp_dir = std::env::temp_dir().join(format!("mercado_test_nobackup_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let res = create_pre_migration_backup_in_dir(&temp_dir, "0.1.16");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), None);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_pre_migration_backup_creates_consistent_backup_and_is_idempotent() {
+        let temp_dir = std::env::temp_dir().join(format!("mercado_test_backup_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let db_path = temp_dir.join("mercado.db");
+        let db_str = db_path.to_string_lossy().replace('\\', "/");
+        let db_url = format!("sqlite://{}", db_str);
+
+        // Inicializa o banco com dados de teste
+        tauri::async_runtime::block_on(async {
+            use sqlx::sqlite::SqliteConnectOptions;
+            use sqlx::ConnectOptions;
+            use std::str::FromStr;
+
+            let opts = SqliteConnectOptions::from_str(&db_url)
+                .unwrap()
+                .create_if_missing(true);
+
+            let mut conn = opts.connect().await.unwrap();
+            sqlx::query(
+                "CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+                 INSERT INTO products (id, name) VALUES ('prod-1', 'Arroz 5kg');"
+            )
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        });
+
+        // 1. Primeira execução: deve criar o backup
+        let res1 = create_pre_migration_backup_in_dir(&temp_dir, "0.1.16");
+        assert!(res1.is_ok());
+        let backup_path = res1.unwrap().expect("Backup path must be Some");
+        assert!(backup_path.exists());
+        assert_eq!(backup_path.file_name().unwrap(), "mercado-pre-migration-v0.1.16.db");
+
+        // Valida integridade e dados do backup criado
+        tauri::async_runtime::block_on(async {
+            use sqlx::sqlite::SqliteConnectOptions;
+            use sqlx::ConnectOptions;
+            use std::str::FromStr;
+
+            let b_url = format!("sqlite://{}", backup_path.to_string_lossy().replace('\\', "/"));
+            let opts = SqliteConnectOptions::from_str(&b_url).unwrap().read_only(true);
+            let mut conn = opts.connect().await.unwrap();
+
+            let (check,): (String,) = sqlx::query_as("PRAGMA integrity_check;")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(check, "ok");
+
+            let (cnt,): (i64,) = sqlx::query_as("SELECT count(*) FROM products;")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(cnt, 1);
+        });
+
+        // 2. Segunda execução: idempotente, não dá erro e retorna o backup existente
+        let res2 = create_pre_migration_backup_in_dir(&temp_dir, "0.1.16");
+        assert!(res2.is_ok());
+        assert_eq!(res2.unwrap(), Some(backup_path));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+}
+
 

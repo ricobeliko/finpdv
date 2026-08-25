@@ -94,11 +94,31 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
 
 ---
 
-## 7. Próxima Etapa Planejada (Consolidação Final)
+## 7. Gate 4 — Consolidação Final, Upgrade Seguro e Backup Pré-Migration: VALIDADO
+* **Status:** VALIDADO LOCALMENTE — AGUARDANDO CI REMOTO
+* [x] **Preservação Total de Dados Existentes (Zero Data Loss):** Comprovada a preservação de 100% dos dados em migração de banco legado real (categorias, produtos, códigos de barras, preços de atacado, clientes, histórico de vendas, itens, sessões e movimentações de caixa/estoque intactos).
+* [x] **Zero Backfill Sintético:** Vendas legadas permanecem sem registros fabricados em `sale_payments` e com `status = 'COMPLETED'` e `cancelled_at = NULL`.
+* [x] **Backup Pré-Migration Automático e Idempotente no Rust:** Snapshot consistente de `mercado.db` via `VACUUM INTO` gerado no bootstrap do Tauri antes da execução de migrations do frontend, idempotente por versão (`mercado-pre-migration-v<VERSAO>.db`).
+* [x] **Restauração de Backup Novo e Legado:** Rotina `restoreFullDatabaseDumpDb` validada para restauração de dumps completos estruturados e dumps legados cobrindo 100% das 14 tabelas sem criação de pagamentos fictícios.
+* [x] **Auditoria de `sales.payment_method` e Relatórios:** Coluna preservada como compatibility/display field para vendas legadas, enquanto vendas novas usam a estrutura normalizada de pagamentos e relatórios filtram por allowlist `status === 'COMPLETED'`.
+* [x] **Auditoria de Foreign Keys JS:** Classificação A confirmada — transações financeiras críticas protegidas por `sqlx::Transaction` com FKs ativas e snapshots históricos de itens isolados de deleções de catálogo.
+* [x] **Testes Unitários Rust:** 35 testes unitários nativos (33 anteriores + 2 novos testes de backup pré-migration e idempotência) passando com 100% de sucesso.
+* [!] **Dívidas Técnicas Mantidas Fora Deste Gate:**
+  1. Coluna `sales.payment_method` permanece como compatibility field para relatórios e cupons legados.
+  2. Warnings legados do winspooler mantidos.
 
-**Gate 4 / Consolidação Final:**
-1. Regressão e consolidação integrada de todos os fluxos financeiros (venda, estorno, caixa, estoque, relatórios).
-2. Validação final de release.
+---
+
+## 8. Próxima Etapa Planejada (Release)
+
+**Release ainda NÃO autorizada.**
+
+**Pendências obrigatórias pré-release:**
+- Teste isolado de instalação antiga → nova.
+- Teste real do updater.
+- Somente depois desses testes: bump de versão, tag e publicação de release.
+
+
 
 
 

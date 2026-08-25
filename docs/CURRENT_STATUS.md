@@ -5,9 +5,9 @@
 ---
 
 ## 1. Dados do Repositório
-* **Versão do Projeto:** `0.2.1`
-* **Release Homologada:** `v0.2.1`
-* **Último Commit de Release:** `d70d16c — chore(release): preparar versao 0.2.1`
+* **Versão do Projeto:** `0.2.2`
+* **Release Homologada:** `v0.2.2`
+* **Último Commit de Release:** `3e23947 — feat(updater): notas de versao dinamicas e bump para v0.2.2`
 * **Working Tree:** `LIMPO E HOMOLOGADO`
 * **CI Remoto (GitHub Actions):** `PASS (100% VERDE)`
 
@@ -134,3 +134,23 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
   * [x] **Configurações Locais Seguras:** Persistência de token e User-Agent restrita ao `localStorage` (isolada de SQLite, logs e backups relacionais).
   * [x] **Preservação de Dados e Backup Pré-Migration:** Snapshot consistente `mercado-pre-migration-v0.2.1.db` gerado no bootstrap antes de migrations, preservando 100% do histórico e dados relacionais.
 * **Status Final:** **RELEASE v0.2.1 PUBLICADA E HOMOLOGADA**
+
+---
+
+## 10. Gate 7 — Release v0.2.2 (Notas de Versão Dinâmicas no Updater): FECHADO
+* **Status:** FECHADO — HOMOLOGADO E PUBLICADO
+* **Release Homologada:** `v0.2.2`
+* **Commit da Release:** `3e23947`
+* **CI Pré-Release:** Run ID `32819635194` (PASS — 100% verde)
+* **Release Workflow (GitHub Actions):** Run ID `32820220960` (PASS — Tag `v0.2.2`)
+* **Artefatos Oficiais Publicados:**
+  * `Mercearia.Uber_0.2.2_x64-setup.exe` (6.864.998 bytes)
+  * `Mercearia.Uber_0.2.2_x64-setup.exe.sig` (428 bytes)
+  * `latest.json` (1.468 bytes com notas dinâmicas estruturadas)
+* **Entregas da Release v0.2.2:**
+  * [x] **Notas de Atualização Dinâmicas no Pipeline:** Step `Extract Release Notes` em `.github/workflows/release.yml` extrai automaticamente os tópicos reais de `RELEASE_NOTES.md` correspondentes à tag em publicação para o campo `"notes"` do `latest.json`.
+  * [x] **Parser Unificado de Release Notes:** Helper `parseReleaseHighlights` em `src/core/updater/updaterService.ts` com suporte a markdown, bullet points e catálogo de novidades por versão.
+  * [x] **Assistente de Atualização Flutuante:** `AutoUpdateNotification.tsx` exibe os itens reais de melhorias da versão que está sendo baixada e instalada.
+  * [x] **Painel de Configurações:** `SettingsPage.tsx` reflete dinamicamente a lista de novidades da versão disponível sem textos legados fixos.
+* **Status Final:** **RELEASE v0.2.2 PUBLICADA E HOMOLOGADA**
+

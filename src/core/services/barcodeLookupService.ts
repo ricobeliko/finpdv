@@ -6,6 +6,115 @@ export interface BarcodeLookupResult {
 }
 
 /**
+ * Normaliza e classifica as categorias retornadas pelas bases de códigos de barras.
+ * Dá prioridade a categorias específicas e ignora meta-tags genéricas (ex: 'plant-based-foods-and-beverages').
+ */
+export function classifyCategoryFromTags(rawTags: string[] = [], rawCategoriesString: string = ''): string {
+  const tags: string[] = [];
+
+  for (const tag of rawTags) {
+    if (!tag) continue;
+    const cleanTag = tag.toLowerCase().replace(/^[a-z]{2}:/, '').trim();
+    if (cleanTag) tags.push(cleanTag);
+  }
+
+  if (rawCategoriesString) {
+    const parts = rawCategoriesString.split(/[,;/]+/);
+    for (const part of parts) {
+      const cleanPart = part.toLowerCase().replace(/^[a-z]{2}:/, '').trim();
+      if (cleanPart) tags.push(cleanPart);
+    }
+  }
+
+  // Tags genéricas que NÃO devem determinar departamento
+  const genericTagsToIgnore = new Set([
+    'plant-based-foods-and-beverages',
+    'foods-and-beverages',
+    'plant-based-foods',
+    'food',
+    'foods',
+    'groceries',
+    'cereals-and-potatoes',
+    'cereals-and-their-products',
+    'farming-products',
+    'meals',
+    'snacks',
+    'sweet-snacks',
+    'salty-snacks'
+  ]);
+
+  const filteredTags = tags.filter(t => !genericTagsToIgnore.has(t));
+
+  const hasTag = (terms: string[]) => {
+    return filteredTags.some(tag => 
+      terms.some(term => tag === term || tag.includes(term))
+    );
+  };
+
+  // PRIORIDADE 1: Padaria & Panificação
+  if (hasTag([
+    'bread', 'breads', 'sliced-bread', 'sliced-breads', 'bakery', 'bakery-products', 'bakeries',
+    'pao', 'paos', 'pães', 'paes', 'pao-de-forma', 'bolo', 'bolos', 'cake', 'cakes',
+    'biscuit', 'biscuits', 'biscoito', 'biscoitos', 'bolacha', 'bolachas', 'cookie', 'cookies',
+    'toast', 'toasts', 'torrada', 'torradas', 'croissant', 'croissants', 'pastry', 'pastries',
+    'viennoiseries', 'panificacao', 'confeitaria'
+  ])) {
+    return 'Padaria';
+  }
+
+  // PRIORIDADE 2: Laticínios & Frios
+  if (hasTag([
+    'dairies', 'dairy', 'cheese', 'cheeses', 'milk', 'milks', 'yogurt', 'yogurts', 'butter', 'butters',
+    'queijo', 'queijos', 'leite', 'leites', 'iogurte', 'iogurtes', 'manteiga', 'manteigas',
+    'requeijao', 'requeijão', 'laticinio', 'laticinios', 'laticínios', 'frios', 'presunto',
+    'mortadela', 'embutidos', 'cold-cuts', 'fermented-milk-products'
+  ])) {
+    return 'Frios & Laticínios';
+  }
+
+  // PRIORIDADE 3: Bebidas (somente tags específicas de bebidas)
+  if (hasTag([
+    'beverages', 'beverage', 'bebidas', 'bebida', 'soft-drinks', 'sodas', 'soda', 'carbonated-drinks',
+    'waters', 'water', 'mineral-waters', 'spring-waters', 'juices', 'juice', 'fruit-juices',
+    'beers', 'beer', 'lagers', 'ales', 'wines', 'wine', 'energy-drinks', 'iced-teas',
+    'alcoholic-beverages', 'distilled-beverages', 'liquors', 'refrigerante', 'refrigerantes',
+    'suco', 'sucos', 'agua', 'aguas', 'água', 'águas', 'cerveja', 'cervejas', 'vinho', 'vinhos',
+    'energetico', 'energeticos', 'energético', 'energéticos', 'cha-gelado', 'chas-gelados',
+    'chá-gelado', 'chás-gelados', 'isotonicos', 'isotônicos', 'vodka', 'whisky', 'cachaca',
+    'cachaça', 'aguardente', 'boisson', 'boissons', 'drink', 'drinks'
+  ])) {
+    return 'Bebidas';
+  }
+
+  // PRIORIDADE 4: Limpeza & Higiene
+  if (hasTag([
+    'cleaning', 'cleaning-products', 'hygiene', 'personal-care', 'household-supplies',
+    'detergent', 'detergents', 'dishwashing', 'bleach', 'soap', 'soaps', 'toilet-paper',
+    'shampoo', 'shampoos', 'conditioner', 'toothpaste', 'mouthwash', 'limpeza', 'higiene',
+    'sabonete', 'sabonetes', 'detergente', 'detergentes', 'desinfetante', 'desinfetantes',
+    'amaciante', 'amaciantes', 'agua-sanitaria', 'água-sanitária', 'esponja', 'papel-higienico',
+    'papel-higiênico', 'creme-dental', 'escova-dental', 'desodorante', 'absorvente', 'fraldas'
+  ])) {
+    return 'Limpeza & Higiene';
+  }
+
+  // PRIORIDADE 5: Hortifrúti
+  if (hasTag([
+    'fruits', 'fruit', 'fresh-fruits', 'vegetables', 'vegetable', 'fresh-vegetables',
+    'leafy-vegetables', 'root-vegetables', 'legumes', 'legume', 'verduras', 'verdura',
+    'frutas', 'fruta', 'hortalicas', 'hortaliças', 'hortifruti', 'hortifrúti',
+    'tomatoes', 'tomato', 'bananas', 'banana', 'apples', 'apple', 'oranges', 'orange',
+    'potatoes', 'potato', 'onions', 'onion', 'alface', 'tomate', 'batata', 'cebola',
+    'maca', 'maçã', 'laranja'
+  ])) {
+    return 'Hortifrúti';
+  }
+
+  // PRIORIDADE 6 / Fallback: Mercearia & Grãos
+  return 'Mercearia & Grãos';
+}
+
+/**
  * Consulta bases públicas de códigos de barras (EAN-13 / GTIN)
  * com fallback múltiplo (Open Food Facts v2 + v0 Brasil)
  */
@@ -53,17 +162,11 @@ export async function lookupBarcodeInfo(barcode: string): Promise<BarcodeLookupR
 
         if (!formattedName) continue;
 
-        // Sugestão de categoria com base nas tags
-        let categorySuggestion = 'Mercearia & Grãos';
-        const catTags = (product.categories_tags || []).concat(product.categories ? [product.categories] : []).join(' ').toLowerCase();
-
-        if (catTags.includes('beverage') || catTags.includes('boisson') || catTags.includes('drink') || catTags.includes('refrigerante') || catTags.includes('cerveja') || catTags.includes('suco') || catTags.includes('agua') || catTags.includes('soft-drinks')) {
-          categorySuggestion = 'Bebidas';
-        } else if (catTags.includes('hygiene') || catTags.includes('cleaning') || catTags.includes('limpeza') || catTags.includes('sabonete') || catTags.includes('detergent')) {
-          categorySuggestion = 'Limpeza & Higiene';
-        } else if (catTags.includes('fruit') || catTags.includes('vegetable') || catTags.includes('legume') || catTags.includes('verdura')) {
-          categorySuggestion = 'Hortifrúti';
-        }
+        // Sugestão de categoria com base nas tags normalizadas e prioritárias
+        const categorySuggestion = classifyCategoryFromTags(
+          product.categories_tags || [],
+          product.categories || ''
+        );
 
         return {
           found: true,

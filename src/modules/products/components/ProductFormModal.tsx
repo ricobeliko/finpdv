@@ -114,6 +114,25 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
     }
   }, [isOpen, initialData]);
 
+  // Atalho global: Tecla ESC fecha o modal (bloqueado durante salvamento ativo)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (!isSubmitting && !submittingRef.current) {
+          e.preventDefault();
+          onClose();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, isSubmitting, onClose]);
+
   if (!isOpen) return null;
 
   const parseCents = (val: string) => {
@@ -147,9 +166,13 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
 
         // Sugestão de categoria (apenas se o operador NÃO alterou a categoria manualmente)
         if (result.categorySuggestion && !isCategoryManuallyEditedRef.current) {
-          const matchedCat = categories.find(c => 
-            c.name.toLowerCase().includes(result.categorySuggestion!.toLowerCase())
-          );
+          const suggestionLower = result.categorySuggestion.toLowerCase();
+          const matchedCat = categories.find(c => {
+            const catNameLower = c.name.toLowerCase();
+            return catNameLower.includes(suggestionLower) ||
+              suggestionLower.includes(catNameLower) ||
+              (suggestionLower === 'padaria' && (catNameLower.includes('pão') || catNameLower.includes('pães') || catNameLower.includes('paes') || catNameLower.includes('panificação')));
+          });
           if (matchedCat) {
             setCategoryId(matchedCat.id);
             localStorage.setItem('mercado_pos_last_category_id', matchedCat.id);

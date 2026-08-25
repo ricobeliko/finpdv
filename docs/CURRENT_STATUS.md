@@ -54,14 +54,20 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
 
 ---
 
-## 5. Gate 2 — Transação Global da Finalização da Venda: VALIDADO LOCALMENTE — AGUARDANDO CI REMOTO
-
+## 5. Gate 2 — Transação Global da Finalização da Venda: FECHADO
+* **Status:** VALIDADO LOCALMENTE & VALIDADO NO GITHUB ACTIONS (Run ID: `32798320087`, Commit: `f7714c3`)
 * [x] **Transação Atômica Unificada:** Uma única conexão física com `PRAGMA foreign_keys = ON` e `sqlx::Transaction` em `src-tauri/src/sale_transaction.rs` persistindo atomicamente `sales`, `sale_items`, `sale_payments`, baixa de estoque autoritativa em `products`, `inventory_movements`, `cash_movements`, atualização de saldo em `cash_sessions` e estatísticas em `customers`.
 * [x] **Validação Estrita de `rows_affected`:** Mutações em `products`, `cash_sessions` e `customers` exigem `rows_affected == 1`, abortando com rollback imediato caso qualquer update afete zero linhas.
 * [x] **Rollback Global Comprovado:** Falhas determinísticas entre `UPDATE products` e `INSERT inventory_movements`, e entre `INSERT cash_movements` e `UPDATE cash_sessions`, revertem 100% das mutações anteriores físicas do banco.
 * [x] **Separação Rígida Fase 1 (Persistência) e Fase 2 (Pós-Commit):** Falhas em reload de stores ou hardware pós-commit não desfazem a venda gravada nem mantêm o carrinho para reenvio perigoso.
 * [x] **Lock Síncrono no PDV:** Trava síncrona `isCompletingSaleRef` em `PosPage.tsx` previne disparos concorrentes por duplo clique ou Enter repetido.
 * [x] **Testes Unitários Rust:** 12 testes unitários nativos comprovando invariantes críticas (sucesso completo, rollback por PK duplicada, produto inexistente, sessão fechada, cliente inexistente, rollback pós-stock-update, rollback pós-cash-movement-insert, execução sem lost updates, venda 100% eletrônica, produtos fracionados, tentativa de ID duplicado e foreign keys).
+* [!] **Dívidas Técnicas Mantidas Fora Deste Gate:**
+  1. Cancelamento e estorno ainda utilizam hard DELETE legado (escopo do Gate 3).
+  2. Coluna `sales.payment_method` permanece como compatibility field para relatórios antigos.
+  3. Foreign Keys não são garantidas globalmente em conexões JS genéricas do `@tauri-apps/plugin-sql` (porém rigorosamente ativas e testadas na conexão nativa Rust).
+  4. Warnings legados do winspooler mantidos.
+
 
 
 ---

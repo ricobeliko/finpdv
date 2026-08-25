@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   DollarSign, 
   Boxes, 
@@ -6,11 +6,18 @@ import {
   Printer,
   CalendarDays,
   TrendingUp,
-  Calendar
+  Calendar,
+  AlertTriangle,
+  X,
+  Ban
 } from 'lucide-react';
-import { loadClosedCashSessionsDb, loadSalesDb, loadProductsFromDb } from '../../core/database/db';
+import { loadClosedCashSessionsDb, loadSalesDb, loadProductsFromDb, cancelSaleDb } from '../../core/database/db';
 import { Product } from '../products/types';
 import { CashClosingSummary } from '../cash/types';
+import { useCashStore } from '../cash/cashStore';
+import { useUserStore } from '../users/userStore';
+import { useProductStore } from '../products/productStore';
+import { useCustomerStore } from '../customers/customerStore';
 
 const MONTH_ABBR = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
 
@@ -51,6 +58,19 @@ export function ReportsPage() {
   // Filtros de Ano e Mês em Abas
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+
+  // Estado para Modal de Estorno de Venda e Toast
+  const [selectedSaleForRefund, setSelectedSaleForRefund] = useState<any | null>(null);
+  const [saleRefundReason, setSaleRefundReason] = useState('');
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'warning' | 'danger' } | null>(null);
+  const isCancellingSaleRef = useRef(false);
+  const { currentSession, initCash } = useCashStore();
+  const { currentUser } = useUserStore();
+
+  const showToast = (msg: string, type: 'success' | 'warning' | 'danger' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   useEffect(() => {
     async function loadData() {
@@ -173,12 +193,61 @@ export function ReportsPage() {
     });
   }, [salesList, selectedYear, selectedMonth]);
 
+  // Vendas ativas (COMPLETED) para métricas de faturamento
+  const activeSales = useMemo(() => {
+    return filteredSales.filter(s => s.status === 'COMPLETED');
+  }, [filteredSales]);
+
+
   const salesSummary = useMemo(() => {
-    const totalCents = filteredSales.reduce((sum, s) => sum + (s.total_cents || 0), 0);
-    const count = filteredSales.length;
+    const totalCents = activeSales.reduce((sum, s) => sum + (s.total_cents || 0), 0);
+    const count = activeSales.length;
     const avgTicketCents = count > 0 ? Math.round(totalCents / count) : 0;
     return { totalCents, count, avgTicketCents };
-  }, [filteredSales]);
+  }, [activeSales]);
+
+  const handleConfirmSaleRefund = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSaleForRefund) return;
+    if (isCancellingSaleRef.current) return;
+    isCancellingSaleRef.current = true;
+
+    try {
+      await cancelSaleDb({
+        saleId: selectedSaleForRefund.id,
+        currentSessionId: currentSession?.isOpen ? currentSession.id : null,
+        userId: currentUser?.id,
+        userName: currentUser?.name,
+        reason: saleRefundReason.trim() || 'Estorno via Relatórios'
+      });
+
+      showToast(`Venda #${selectedSaleForRefund.id} cancelada com sucesso!`, 'success');
+      setSelectedSaleForRefund(null);
+      setSaleRefundReason('');
+
+      // Recarrega dados atualizados em modo somente leitura
+      const [updatedSales, updatedProds] = await Promise.all([
+        loadSalesDb().catch(() => []),
+        loadProductsFromDb().catch(() => [])
+      ]);
+      setSalesList(updatedSales || []);
+      setProductsList(updatedProds || []);
+
+      try {
+        await initCash();
+        await useProductStore.getState().loadFromDb();
+        await useCustomerStore.getState().loadFromDb();
+      } catch (syncErr) {
+        console.warn('Aviso: falha na sincronização pós-estorno:', syncErr);
+      }
+    } catch (err: any) {
+      console.error('Erro ao cancelar venda:', err);
+      showToast(err?.message || String(err) || 'Erro ao realizar cancelamento.', 'danger');
+    } finally {
+      isCancellingSaleRef.current = false;
+    }
+  };
+
 
   // 4. TOTAL E MÉDIA DIÁRIA DOS DIAS COM VENDA
   const { selectedTotalCents, selectedDailyAvgCents, activeDaysCount } = useMemo(() => {
@@ -203,6 +272,14 @@ export function ReportsPage() {
 
   return (
     <div className="h-full flex flex-col space-y-4">
+      {toast && (
+        <div className={`fixed top-16 right-6 z-50 px-4 py-2.5 rounded-lg shadow-xl text-white text-xs font-bold flex items-center space-x-2 border animate-fade-in ${
+          toast.type === 'danger' ? 'bg-red-600 border-red-700' : toast.type === 'warning' ? 'bg-amber-600 border-amber-700' : 'bg-slate-800 border-slate-700'
+        }`}>
+          <span>{toast.msg}</span>
+        </div>
+      )}
+
       {/* BARRA SUPERIOR DE MÓDULOS */}
       <div className="bg-surface p-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-2">
@@ -445,38 +522,80 @@ export function ReportsPage() {
                   <th className="py-2.5 px-2">DATA / HORA</th>
                   <th className="py-2.5 px-2">CLIENTE</th>
                   <th className="py-2.5 px-2">PAGAMENTO</th>
+                  <th className="py-2.5 px-2 text-center">STATUS</th>
                   <th className="py-2.5 px-2 text-right">SUBTOTAL</th>
                   <th className="py-2.5 px-2 text-right">DESCONTO</th>
                   <th className="py-2.5 px-2 text-right">TOTAL PAGO</th>
+                  <th className="py-2.5 px-2 text-center">AÇÕES</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
                 {filteredSales.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-12 text-slate-400 font-sans text-xs">
+                    <td colSpan={9} className="text-center py-12 text-slate-400 font-sans text-xs">
                       Nenhuma venda registrada para o período selecionado.
                     </td>
                   </tr>
                 ) : (
-                  filteredSales.map((s) => (
-                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-3 px-2 font-bold text-slate-800">#{s.id}</td>
-                      <td className="py-3 px-2 text-slate-500 text-[11px]">{s.created_at}</td>
-                      <td className="py-3 px-2 font-sans font-medium text-slate-700">
-                        {s.customer_name || 'CONSUMIDOR'}
-                      </td>
-                      <td className="py-3 px-2 font-sans font-bold text-primary text-[11px]">
-                        {s.payment_method}
-                      </td>
-                      <td className="py-3 px-2 text-right text-slate-600">{formatBRL(s.subtotal_cents)}</td>
-                      <td className="py-3 px-2 text-right font-bold text-red-600">
-                        {s.discount_cents > 0 ? `-${formatBRL(s.discount_cents)}` : 'R$ 0,00'}
-                      </td>
-                      <td className="py-3 px-2 text-right font-black text-primary text-sm">
-                        {formatBRL(s.total_cents)}
-                      </td>
-                    </tr>
-                  ))
+                  filteredSales.map((s) => {
+                    const isCancelled = s.status === 'CANCELLED';
+
+                    return (
+                      <tr key={s.id} className={`hover:bg-slate-50 transition-colors ${isCancelled ? 'bg-red-50/30' : ''}`}>
+                        <td className={`py-3 px-2 font-bold ${isCancelled ? 'line-through text-slate-500' : 'text-slate-800'}`}>
+                          #{s.id}
+                        </td>
+                        <td className="py-3 px-2 text-slate-500 text-[11px]">{s.created_at}</td>
+                        <td className="py-3 px-2 font-sans font-medium text-slate-700">
+                          {s.customer_name || 'CONSUMIDOR'}
+                        </td>
+                        <td className="py-3 px-2 font-sans font-bold text-primary text-[11px]">
+                          {s.payment_method}
+                        </td>
+                        <td className="py-3 px-2 text-center font-sans">
+                          {isCancelled ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 inline-block">
+                              CANCELADA
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 inline-block">
+                              CONCLUÍDA
+                            </span>
+                          )}
+                        </td>
+                        <td className={`py-3 px-2 text-right ${isCancelled ? 'line-through text-slate-400' : 'text-slate-600'}`}>
+                          {formatBRL(s.subtotal_cents)}
+                        </td>
+                        <td className={`py-3 px-2 text-right font-bold ${isCancelled ? 'line-through text-slate-400' : 'text-red-600'}`}>
+                          {s.discount_cents > 0 ? `-${formatBRL(s.discount_cents)}` : 'R$ 0,00'}
+                        </td>
+                        <td className={`py-3 px-2 text-right font-black text-sm ${isCancelled ? 'line-through text-slate-400' : 'text-primary'}`}>
+                          {formatBRL(s.total_cents)}
+                        </td>
+                        <td className="py-3 px-2 text-center font-sans">
+                          {!isCancelled ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSaleForRefund(s);
+                                setSaleRefundReason('');
+                              }}
+                              className="text-amber-700 hover:bg-amber-100 px-2 py-1 rounded text-[10px] font-bold transition-all flex items-center space-x-1 mx-auto"
+                              title="Cancelar e estornar esta venda"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Estornar</span>
+                            </button>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 flex items-center justify-center space-x-1">
+                              <Ban className="w-3 h-3 text-slate-400" />
+                              <span>Cancelada</span>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -519,6 +638,79 @@ export function ReportsPage() {
           </div>
         </div>
       )}
+
+      {/* MODAL DE CONFIRMAÇÃO DE ESTORNO DE VENDA */}
+      {selectedSaleForRefund && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+            <div className="p-4 bg-amber-600 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <AlertTriangle className="w-5 h-5" />
+                <h3 className="font-bold text-sm">Confirmar Estorno / Cancelamento de Venda</h3>
+              </div>
+              <button 
+                onClick={() => setSelectedSaleForRefund(null)} 
+                className="text-white/80 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmSaleRefund} className="p-6 space-y-4">
+              <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Cupom da Venda:</span>
+                  <span className="font-mono font-bold text-slate-800">#{selectedSaleForRefund.id}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Cliente:</span>
+                  <span className="font-bold text-slate-800">{selectedSaleForRefund.customer_name || 'CONSUMIDOR'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Forma de Pagamento:</span>
+                  <span className="font-bold text-primary">{selectedSaleForRefund.payment_method}</span>
+                </div>
+                <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                  <span className="font-bold text-slate-700">Valor Total:</span>
+                  <span className="font-mono font-black text-sm text-red-600">
+                    {formatBRL(selectedSaleForRefund.total_cents)}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Motivo do Cancelamento / Estorno (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Devolução de mercadoria / Cobrança indevida"
+                  value={saleRefundReason}
+                  onChange={(e) => setSaleRefundReason(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:border-amber-600"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSaleForRefund(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors"
+                >
+                  Confirmar Estorno
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+}

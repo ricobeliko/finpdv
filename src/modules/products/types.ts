@@ -1,6 +1,9 @@
 export type UnitMeasure = 'UN' | 'KG' | 'LT' | 'CX' | 'MT';
 
+export const OPEN_PRICE_PRODUCT_ID = 'prod-open-price-1';
+
 export type MovementType = 'PURCHASE' | 'SALE' | 'ADJUST_IN' | 'ADJUST_OUT' | 'LOSS' | 'COUNT_CORRECTION';
+
 
 export interface TierPrice {
   minQuantity: number;

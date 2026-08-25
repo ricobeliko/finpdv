@@ -12,8 +12,9 @@ import {
   Lock,
   KeyRound
 } from 'lucide-react';
-import { Product, UnitMeasure } from '../products/types';
+import { Product, UnitMeasure, OPEN_PRICE_PRODUCT_ID } from '../products/types';
 import { CartItem, CompletedSale, Customer, SuspendedSale } from './types';
+
 import { useCashStore } from '../cash/cashStore';
 import { useCustomerStore } from '../customers/customerStore';
 import { useProductStore } from '../products/productStore';
@@ -138,9 +139,10 @@ export function PosPage() {
     if (query === '1') {
       const existingProd1 = products.find(p => p.internalCode === '1');
       const virtualProd1: Product = existingProd1 || {
-        id: 'prod-open-price-1',
+        id: OPEN_PRICE_PRODUCT_ID,
         internalCode: '1',
         name: 'Varejo Diversos',
+
         categoryId: 'cat-1',
         unitMeasure: 'UN',
         barcodes: ['1'],

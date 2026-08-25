@@ -72,10 +72,32 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
 
 ---
 
-## 6. Próxima Etapa Planejada (Gate 3)
+## 6. Gate 3 — Cancelamento / Estorno Atômico & Open Price: VALIDADO
+* **Status:** VALIDADO LOCALMENTE — AGUARDANDO CI REMOTO
+* [x] **Soft Cancel Total (CANCELAR != APAGAR):** Remoção total de queries `DELETE FROM sales` e `DELETE FROM sale_items` do cancelamento normal. Vendas canceladas recebem `status = 'CANCELLED'` e `cancelled_at = <timestamp>`, preservando registros originais em `sales`, `sale_items` e `sale_payments` para auditoria.
 
-**Gate 3 — Reformulação do Cancelamento e Estorno Atômico:**
-1. Substituição do hard DELETE em `sales` por soft cancel (`status = 'CANCELLED'`).
-2. Reversão atômica unificada de estoque (`returnStockFromRefund`), estorno de caixa (`cash_movements` + `cash_sessions`) e dedução de estatísticas do cliente na mesma transação Rust.
+* [x] **Transação Atômica Rust (`cancel_sale_transaction`):** Executada em conexão física única com `PRAGMA foreign_keys = ON` e `sqlx::Transaction` em `src-tauri/src/sale_cancellation.rs`.
+* [x] **Reversão Autoritativa de Estoque:** Devolução de estoque em `products` com validação `rows_affected == 1` e inserção de `inventory_movements` (tipo `REFUND`).
+* [x] **Reversão Estrita de Caixa:** Estorno financeiro físico no caixa atual ocorre apenas sobre a soma de pagamentos `CASH`. Pagamentos 100% eletrônicos (PIX/Cartão) não afetam o saldo físico da gaveta.
+* [x] **Recomputação de Estatísticas do Cliente:** Estatísticas (`total_spent_cents`, `purchases_count`, `last_purchase_date`) são recomputadas autoritativamente a partir das vendas restantes no estado `COMPLETED`.
+* [x] **Proteção contra Duplo Cancelamento:** Validação estrita de status prévio `COMPLETED` no backend e trava síncrona `isRefundingRef` / `isCancellingSaleRef` no frontend bloqueiam execuções repetidas.
+* [x] **Segurança com Vendas Legadas:** Vendas históricas sem detalhamento estruturado em `sale_payments` têm cancelamento automático bloqueado com mensagem explícita, sem inferência arbitrária de números.
+* [x] **Item Especial de Preço Livre / Varejo Diversos (`prod-open-price-1`):** Definido canonicamente como item virtual não estocável (`OPEN_PRICE_PRODUCT_ID`). Permite venda e cancelamento de cupom com atalho `1 + ENTER` sem exigir registro físico na tabela `products` e sem fabricar movimentações/estoques fictícios, mantendo a validação estrita inalterada para todos os produtos normais.
+* [x] **Alinhamento Estrito em Relatórios:** Métricas financeiras e faturamento filtram estritamente por allowlist `status === 'COMPLETED'`.
+* [x] **Testes Unitários Rust:** 33 testes unitários nativos (12 do Gate 2, 13 do Gate 3 inicial e 8 novos testes para venda e estorno de open-price e itens mistos) passando com 100% de sucesso.
+* [!] **Dívidas Técnicas Mantidas Fora Deste Gate:**
+  1. Coluna `sales.payment_method` permanece como compatibility field para relatórios antigos.
+  2. Foreign Keys não são garantidas globalmente em conexões JS genéricas do `@tauri-apps/plugin-sql` (porém rigorosamente ativas e testadas na conexão nativa Rust).
+  3. Warnings legados do winspooler mantidos.
+
+
+---
+
+## 7. Próxima Etapa Planejada (Consolidação Final)
+
+**Gate 4 / Consolidação Final:**
+1. Regressão e consolidação integrada de todos os fluxos financeiros (venda, estorno, caixa, estoque, relatórios).
+2. Validação final de release.
+
 
 

@@ -10,6 +10,8 @@ import {
   getSaleItemsDb
 } from '../../core/database/db';
 import { useProductStore } from '../products/productStore';
+import { useCustomerStore } from '../customers/customerStore';
+
 
 export interface CashSession {
   id: string;
@@ -347,24 +349,40 @@ export const useCashStore = create<CashState>((set, get) => ({
   },
 
   refundMovement: async (origMovement: CashMovement, reasonText = '') => {
-    let current = get().currentSession;
+    const current = get().currentSession;
     if (!current || !current.isOpen) return;
     if (origMovement.type === 'REFUNDED_SALE' || origMovement.type === 'REFUND') return;
 
     const match = origMovement.reason.match(/#([A-Z0-9_-]+)/i);
     if (match && match[1]) {
       const saleId = match[1];
+      // FASE 1: Executa a transação atômica completa em Rust
+      await cancelSaleDb({
+        saleId,
+        currentSessionId: current.id,
+        userId: current.userId,
+        userName: current.userName,
+        reason: reasonText || 'Estorno via Caixa'
+      });
+
+      // Atualiza visualmente o motivo do movimento original
+      const updatedReason = origMovement.reason.includes('[ESTORNADO]') 
+        ? origMovement.reason 
+        : `${origMovement.reason} [ESTORNADO]`;
+      await updateCashMovementDb(origMovement.id, 'REFUNDED_SALE', updatedReason);
+
+      // FASE 2: Sincronização pós-commit somente leitura das stores
       try {
-        const saleItems = await getSaleItemsDb(saleId);
-        if (saleItems && saleItems.length > 0) {
-          await useProductStore.getState().returnStockFromRefund(saleItems, saleId);
-        }
-        await cancelSaleDb(saleId);
-      } catch (err) {
-        console.warn('Venda não localizada para exclusão:', err);
+        await get().initCash();
+        await useProductStore.getState().loadFromDb();
+        await useCustomerStore.getState().loadFromDb();
+      } catch (syncErr) {
+        console.warn('Aviso: falha na sincronização pós-estorno:', syncErr);
       }
+      return;
     }
 
+    // Caso de movimentação avulsa sem ID de venda vinculado
     const updatedReason = origMovement.reason.includes('[ESTORNADO]') 
       ? origMovement.reason 
       : `${origMovement.reason} [ESTORNADO]`;
@@ -412,4 +430,4 @@ export const useCashStore = create<CashState>((set, get) => ({
       sessions: state.sessions.map(s => s.id === updatedSession.id ? updatedSession : s)
     }));
   }
-}));
+}));

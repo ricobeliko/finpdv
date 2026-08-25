@@ -200,16 +200,44 @@ export function CashPage() {
     setIsBleedModalOpen(false);
   };
 
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'warning' | 'danger' } | null>(null);
+
+  const showToast = (msg: string, type: 'success' | 'warning' | 'danger' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const isRefundingRef = useRef(false);
+
   const handleConfirmRefund = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMovForRefund) return;
-    await refundMovement(selectedMovForRefund, refundReason.trim());
-    setSelectedMovForRefund(null);
-    setRefundReason('');
+    if (isRefundingRef.current) return;
+    isRefundingRef.current = true;
+
+    try {
+      await refundMovement(selectedMovForRefund, refundReason.trim());
+      showToast('Lançamento estornado com sucesso!', 'success');
+      setSelectedMovForRefund(null);
+      setRefundReason('');
+    } catch (err: any) {
+      console.error('Erro ao estornar lançamento:', err);
+      showToast(err?.message || String(err) || 'Erro ao realizar estorno.', 'danger');
+    } finally {
+      isRefundingRef.current = false;
+    }
   };
 
   return (
     <div className="h-full grid grid-cols-12 gap-4 overflow-hidden select-none">
+      {toast && (
+        <div className={`fixed top-16 right-6 z-50 px-4 py-2.5 rounded-lg shadow-xl text-white text-xs font-bold flex items-center space-x-2 border animate-fade-in ${
+          toast.type === 'danger' ? 'bg-red-600 border-red-700' : toast.type === 'warning' ? 'bg-amber-600 border-amber-700' : 'bg-slate-800 border-slate-700'
+        }`}>
+          <span>{toast.msg}</span>
+        </div>
+      )}
+
       {/* COLUNA ESQUERDA: RESUMO DA SESSÃO ATUAL */}
       <div className="col-span-5 flex flex-col justify-between space-y-4">
         <div className="bg-surface rounded-xl border border-slate-200 p-6 shadow-sm flex-1 flex flex-col justify-between">

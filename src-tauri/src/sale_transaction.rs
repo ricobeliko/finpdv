@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Acquire, Pool, Sqlite};
 use tauri::State;
 
+pub const OPEN_PRICE_PRODUCT_ID: &str = "prod-open-price-1";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaleItemPayload {
@@ -13,6 +15,7 @@ pub struct SaleItemPayload {
     pub cost_price_cents: i64,
     pub total_cents: i64,
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -202,7 +205,13 @@ pub async fn execute_sale_transaction(
     let operator_name = sale.user_name.as_deref().unwrap_or("Operador de Caixa");
 
     for (i, item) in sale.items.iter().enumerate() {
+        // Varejo Diversos / Open Price é um item virtual não estocável (não consulta products nem altera estoque)
+        if item.product_id == OPEN_PRICE_PRODUCT_ID {
+            continue;
+        }
+
         let prod_row: Option<(f64, i64, String)> = sqlx::query_as(
+
             "SELECT current_stock, cost_price_cents, name FROM products WHERE id = ?",
         )
         .bind(&item.product_id)
@@ -1380,4 +1389,333 @@ mod tests {
             assert!(res.is_err());
         });
     }
+
+    #[test]
+    fn test_open_price_sale_without_product_row_succeeds() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_test_db().await;
+            seed_test_context(&pool).await;
+
+            // Garante que prod-open-price-1 NÃO existe na tabela products
+            let prod_exists: Option<(String,)> = sqlx::query_as("SELECT id FROM products WHERE id = 'prod-open-price-1'")
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+            assert!(prod_exists.is_none(), "prod-open-price-1 must not exist in products table!");
+
+            let payload = SaleTransactionPayload {
+                id: "CUPOM-OPEN-1".into(),
+                session_id: Some("session-1".into()),
+                user_id: Some("usr-admin".into()),
+                user_name: Some("Administrador".into()),
+                customer_id: None,
+                customer_name: None,
+                subtotal_cents: 2500,
+                discount_cents: 0,
+                total_cents: 2500,
+                change_cents: 0,
+                payment_method: "CASH".into(),
+                status: "COMPLETED".into(),
+                cancelled_at: None,
+                created_at: "2026-08-24 23:00:00".into(),
+                items: vec![SaleItemPayload {
+                    id: "item-open-1".into(),
+                    product_id: OPEN_PRICE_PRODUCT_ID.into(),
+                    product_name: "Varejo Diversos".into(),
+                    quantity: 1.0,
+                    unit_price_cents: 2500,
+                    cost_price_cents: 0,
+                    total_cents: 2500,
+                }],
+                payments: vec![SalePaymentPayload {
+                    id: "pay-open-1".into(),
+                    method: "CASH".into(),
+                    amount_cents: 2500,
+                }],
+            };
+
+            let res = execute_sale_transaction(&pool, &payload).await;
+            assert!(res.is_ok(), "Open price sale must succeed even without product row in products table!");
+
+            // Venda e itens gravados
+            let sale_row: (String, i64) = sqlx::query_as("SELECT id, total_cents FROM sales WHERE id = 'CUPOM-OPEN-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(sale_row.0, "CUPOM-OPEN-1");
+            assert_eq!(sale_row.1, 2500);
+
+            // Zero inventory movements para open price
+            let mov_count: (i64,) = sqlx::query_as("SELECT count(*) FROM inventory_movements WHERE product_id = 'prod-open-price-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(mov_count.0, 0, "Zero inventory movements for open price!");
+        });
+    }
+
+    #[test]
+    fn test_open_price_cash_sale_updates_cash_without_stock() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_test_db().await;
+            seed_test_context(&pool).await;
+
+            let payload = SaleTransactionPayload {
+                id: "CUPOM-OPEN-CASH".into(),
+                session_id: Some("session-1".into()),
+                user_id: Some("usr-admin".into()),
+                user_name: Some("Administrador".into()),
+                customer_id: None,
+                customer_name: None,
+                subtotal_cents: 3000,
+                discount_cents: 0,
+                total_cents: 3000,
+                change_cents: 2000, // Entregou 5000, troco 2000 -> Liquido 3000
+                payment_method: "CASH".into(),
+                status: "COMPLETED".into(),
+                cancelled_at: None,
+                created_at: "2026-08-24 23:05:00".into(),
+                items: vec![SaleItemPayload {
+                    id: "item-open-2".into(),
+                    product_id: OPEN_PRICE_PRODUCT_ID.into(),
+                    product_name: "Varejo Diversos".into(),
+                    quantity: 2.0,
+                    unit_price_cents: 1500,
+                    cost_price_cents: 0,
+                    total_cents: 3000,
+                }],
+                payments: vec![SalePaymentPayload {
+                    id: "pay-open-2".into(),
+                    method: "CASH".into(),
+                    amount_cents: 3000,
+                }],
+            };
+
+            let res = execute_sale_transaction(&pool, &payload).await;
+            assert!(res.is_ok());
+
+            // Caixa atualizado com +3000
+            let session_sales: (i64,) = sqlx::query_as("SELECT sales_cash_cents FROM cash_sessions WHERE id = 'session-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(session_sales.0, 3000);
+
+            // Cash movement gerado
+            let mov: (i64, String) = sqlx::query_as("SELECT amount_cents, type FROM cash_movements WHERE session_id = 'session-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(mov.0, 3000);
+            assert_eq!(mov.1, "SALE");
+
+            // Zero inventory movements
+            let inv_count: (i64,) = sqlx::query_as("SELECT count(*) FROM inventory_movements")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(inv_count.0, 0);
+        });
+    }
+
+    #[test]
+    fn test_open_price_electronic_sale_has_no_physical_cash_or_stock() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_test_db().await;
+            seed_test_context(&pool).await;
+
+            let payload = SaleTransactionPayload {
+                id: "CUPOM-OPEN-PIX".into(),
+                session_id: Some("session-1".into()),
+                user_id: Some("usr-admin".into()),
+                user_name: Some("Administrador".into()),
+                customer_id: None,
+                customer_name: None,
+                subtotal_cents: 1500,
+                discount_cents: 0,
+                total_cents: 1500,
+                change_cents: 0,
+                payment_method: "PIX".into(),
+                status: "COMPLETED".into(),
+                cancelled_at: None,
+                created_at: "2026-08-24 23:10:00".into(),
+                items: vec![SaleItemPayload {
+                    id: "item-open-3".into(),
+                    product_id: OPEN_PRICE_PRODUCT_ID.into(),
+                    product_name: "Varejo Diversos".into(),
+                    quantity: 1.0,
+                    unit_price_cents: 1500,
+                    cost_price_cents: 0,
+                    total_cents: 1500,
+                }],
+                payments: vec![SalePaymentPayload {
+                    id: "pay-open-3".into(),
+                    method: "PIX".into(),
+                    amount_cents: 1500,
+                }],
+            };
+
+            let res = execute_sale_transaction(&pool, &payload).await;
+            assert!(res.is_ok());
+
+            // Gaveta inalterada
+            let session_sales: (i64,) = sqlx::query_as("SELECT sales_cash_cents FROM cash_sessions WHERE id = 'session-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(session_sales.0, 0);
+
+            // Zero cash movements
+            let cash_movs: (i64,) = sqlx::query_as("SELECT count(*) FROM cash_movements WHERE session_id = 'session-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(cash_movs.0, 0);
+        });
+    }
+
+    #[test]
+    fn test_mixed_sale_updates_only_real_product_stock() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_test_db().await;
+            seed_test_context(&pool).await;
+
+            let payload = SaleTransactionPayload {
+                id: "CUPOM-MIXED-1".into(),
+                session_id: Some("session-1".into()),
+                user_id: Some("usr-admin".into()),
+                user_name: Some("Administrador".into()),
+                customer_id: None,
+                customer_name: None,
+                subtotal_cents: 3500, // prod-1 (1000) + open-price (2500)
+                discount_cents: 0,
+                total_cents: 3500,
+                change_cents: 0,
+                payment_method: "CASH".into(),
+                status: "COMPLETED".into(),
+                cancelled_at: None,
+                created_at: "2026-08-24 23:15:00".into(),
+                items: vec![
+                    SaleItemPayload {
+                        id: "item-mix-1".into(),
+                        product_id: "prod-1".into(), // Produto normal (estoque inicial: 10.0)
+                        product_name: "Arroz 5kg".into(),
+                        quantity: 2.0,
+                        unit_price_cents: 500,
+                        cost_price_cents: 300,
+                        total_cents: 1000,
+                    },
+                    SaleItemPayload {
+                        id: "item-mix-2".into(),
+                        product_id: OPEN_PRICE_PRODUCT_ID.into(), // Varejo diversos
+                        product_name: "Varejo Diversos".into(),
+                        quantity: 1.0,
+                        unit_price_cents: 2500,
+                        cost_price_cents: 0,
+                        total_cents: 2500,
+                    }
+                ],
+                payments: vec![SalePaymentPayload {
+                    id: "pay-mix-1".into(),
+                    method: "CASH".into(),
+                    amount_cents: 3500,
+                }],
+            };
+
+            let res = execute_sale_transaction(&pool, &payload).await;
+            assert!(res.is_ok());
+
+            // prod-1 teve estoque baixado de 10.0 para 8.0
+            let prod1_stock: (f64,) = sqlx::query_as("SELECT current_stock FROM products WHERE id = 'prod-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert!((prod1_stock.0 - 8.0).abs() < 1e-6);
+
+            // Apenas 1 movimentação de estoque (para prod-1, ZERO para open-price)
+            let inv_movs: Vec<(String, f64)> = sqlx::query_as("SELECT product_id, quantity FROM inventory_movements")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+            assert_eq!(inv_movs.len(), 1);
+            assert_eq!(inv_movs[0].0, "prod-1");
+            assert!((inv_movs[0].1 - 2.0).abs() < 1e-6);
+
+            // Total de itens na venda = 2
+            let items_count: (i64,) = sqlx::query_as("SELECT count(*) FROM sale_items WHERE sale_id = 'CUPOM-MIXED-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(items_count.0, 2);
+        });
+    }
+
+    #[test]
+    fn test_mixed_sale_rollback_restores_real_product() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_test_db().await;
+            seed_test_context(&pool).await;
+
+            let payload = SaleTransactionPayload {
+                id: "CUPOM-MIXED-FAIL".into(),
+                session_id: Some("session-closed".into()), // Sessão inexistente/fechada -> provoca erro e rollback
+                user_id: Some("usr-admin".into()),
+                user_name: Some("Administrador".into()),
+                customer_id: None,
+                customer_name: None,
+                subtotal_cents: 3500,
+                discount_cents: 0,
+                total_cents: 3500,
+                change_cents: 0,
+                payment_method: "CASH".into(),
+                status: "COMPLETED".into(),
+                cancelled_at: None,
+                created_at: "2026-08-24 23:20:00".into(),
+                items: vec![
+                    SaleItemPayload {
+                        id: "item-mixf-1".into(),
+                        product_id: "prod-1".into(),
+                        product_name: "Arroz 5kg".into(),
+                        quantity: 2.0,
+                        unit_price_cents: 500,
+                        cost_price_cents: 300,
+                        total_cents: 1000,
+                    },
+                    SaleItemPayload {
+                        id: "item-mixf-2".into(),
+                        product_id: OPEN_PRICE_PRODUCT_ID.into(),
+                        product_name: "Varejo Diversos".into(),
+                        quantity: 1.0,
+                        unit_price_cents: 2500,
+                        cost_price_cents: 0,
+                        total_cents: 2500,
+                    }
+                ],
+                payments: vec![SalePaymentPayload {
+                    id: "pay-mixf-1".into(),
+                    method: "CASH".into(),
+                    amount_cents: 3500,
+                }],
+            };
+
+            let res = execute_sale_transaction(&pool, &payload).await;
+            assert!(res.is_err());
+
+            // prod-1 permanece com estoque intacto = 10.0
+            let prod1_stock: (f64,) = sqlx::query_as("SELECT current_stock FROM products WHERE id = 'prod-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert!((prod1_stock.0 - 10.0).abs() < 1e-6);
+
+            // Nenhuma venda ou item persistido
+            let sales_count: (i64,) = sqlx::query_as("SELECT count(*) FROM sales WHERE id = 'CUPOM-MIXED-FAIL'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(sales_count.0, 0);
+        });
+    }
 }
+
+

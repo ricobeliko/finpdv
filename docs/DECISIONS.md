@@ -108,4 +108,48 @@ Prevenir regressões em funcionalidades existentes de caixa e estoque e garantir
 ### Motivo:
 Garantir atomicidade física real (ACID), rastreabilidade contábil estrita de recebimentos mistos, proteção contra perda/sobrescrita de cupons e conformidade de integridade referencial no SQLite.
 
+---
+
+## DEC-009 — Soft Cancel e Reversão Transacional Atômica de Vendas (cancel_sale_transaction)
+
+**Status:** Ativa  
+**Data:** 2026-08-24  
+
+### Decisão:
+1. O cancelamento de vendas concluídas abandona completamente o hard `DELETE FROM sales` e `DELETE FROM sale_items`. Cancelar passa a significar marcar `sales.status = 'CANCELLED'` e registrar o timestamp `sales.cancelled_at`.
+2. A venda original, seus itens e seus pagamentos em `sale_payments` permanecem 100% preservados para auditoria fiscal e contábil.
+3. Todas as reversões financeiras e físicas são executadas dentro de uma única transação atômica nativa Rust (`cancel_sale_transaction`), sob uma única conexão física com `PRAGMA foreign_keys = ON`:
+   - Validação estrita de status prévio `COMPLETED` (protegendo contra duplo cancelamento).
+   - Devolução autoritativa de estoque em `products` com inserção de `inventory_movements` (tipo `REFUND`).
+   - Reversão física de gaveta no caixa atual apenas para o valor líquido recebido em dinheiro (`CASH`). Pagamentos eletrônicos (PIX/Cartão) não alteram saldo físico da gaveta.
+   - Recomputação autoritativa das estatísticas do cliente (`total_spent_cents`, `purchases_count`, `last_purchase_date`) a partir das vendas restantes no estado `COMPLETED`.
+   - Vendas históricas legadas sem detalhamento em `sale_payments` possuem cancelamento automático bloqueado para evitar inferências financeiras falsas.
+4. Consultas e métricas de faturamento passam a filtrar estritamente `WHERE status = 'COMPLETED'` (ou `status != 'CANCELLED'`), garantindo que vendas canceladas não inflem os relatórios financeiros.
+
+### Motivo:
+Eliminar perda irreversível de histórico financeiro, prevenir inconsistências parciais de estoque e caixa durante falhas no cancelamento e manter conformidade contábil estrita.
+
+---
+
+## DEC-010 — Varejo Diversos / Open Price como Item Virtual Não Estocável
+
+**Status:** Ativa  
+**Data:** 2026-08-24  
+
+### Decisão:
+1. O atalho de Preço Livre (`1 + ENTER` / `Varejo Diversos`) opera com o identificador canônico `prod-open-price-1` (`OPEN_PRICE_PRODUCT_ID`).
+2. O item é definido canonicamente como um item virtual de venda não estocável:
+   - Não precisa existir nem ser criado via seed na tabela `products` do SQLite.
+   - Não gera baixa de estoque nem movimentação em `inventory_movements` na finalização de vendas.
+   - Não gera devolução de estoque nem movimentação em `inventory_movements` no cancelamento de vendas.
+   - É persistido normalmente em `sale_items` e `sale_payments`, preservando o histórico contábil e auditoria fiscal de cupons.
+   - Movimenta caixa e faturamento normalmente com as regras transacionais financeiras.
+3. A exceção transacional no Rust é estritamente vinculada à constante de domínio `OPEN_PRICE_PRODUCT_ID` (`prod-open-price-1`). Todos os demais produtos exigem existência física prévia em `products` com validação de `rows_affected == 1`, garantindo que produtos comuns inexistentes abortem com rollback total.
+4. Métricas financeiras e agregações de faturamento em relatórios adotam allowlist explícito `status === 'COMPLETED'`.
+
+### Motivo:
+Alinhar a transação ao modelo de domínio real de mercadorias sem SKU físico individual, evitando a fabricação de estoques e movimentações sintéticas desnecessárias sem enfraquecer a integridade relacional dos produtos normais.
+
+
+
 

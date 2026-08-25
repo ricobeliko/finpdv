@@ -153,6 +153,7 @@ fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
     }
 }
 
+mod sale_cancellation;
 mod sale_transaction;
 
 // 3. PULSO PARA ABRIR GAVETA DE DINHEIRO (RJ11)
@@ -177,8 +178,10 @@ pub fn run() {
             get_printers, 
             print_raw_escpos, 
             open_cash_drawer,
-            sale_transaction::save_sale_transaction
+            sale_transaction::save_sale_transaction,
+            sale_cancellation::cancel_sale_transaction
         ])
         .run(tauri::generate_context!())
         .expect("erro ao executar aplicação tauri");
-}
+}
+

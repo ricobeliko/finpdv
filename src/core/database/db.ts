@@ -581,11 +581,46 @@ export async function getSalePaymentsDb(saleId: string): Promise<SalePayment[]> 
   return rows || [];
 }
 
-export async function cancelSaleDb(saleId: string): Promise<void> {
-  const db = await getDb();
-  await db.execute('DELETE FROM sales WHERE id = $1', [saleId]);
-  await db.execute('DELETE FROM sale_items WHERE sale_id = $1', [saleId]);
+export interface CancelSaleOptions {
+  saleId: string;
+  currentSessionId?: string | null;
+  userId?: string | null;
+  userName?: string | null;
+  reason?: string | null;
+  cancelledAt?: string | null;
 }
+
+export async function cancelSaleDb(optionsOrSaleId: string | CancelSaleOptions): Promise<void> {
+  const options: CancelSaleOptions = typeof optionsOrSaleId === 'string'
+    ? { saleId: optionsOrSaleId }
+    : optionsOrSaleId;
+
+  const now = options.cancelledAt || new Date().toLocaleString('pt-BR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).replace(/(\d+)\/(\d+)\/(\d+)/, '$3-$2-$1');
+
+  const payload = {
+    saleId: options.saleId,
+    currentSessionId: options.currentSessionId || null,
+    userId: options.userId || null,
+    userName: options.userName || null,
+    reason: options.reason || null,
+    cancelledAt: now
+  };
+
+  try {
+    await invoke('cancel_sale_transaction', { payload });
+  } catch (err) {
+    console.error('Erro na transação de cancelamento da venda:', err);
+    throw err;
+  }
+}
+
 
 export async function loadSalesDb() {
   const db = await getDb();

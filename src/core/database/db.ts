@@ -536,8 +536,10 @@ export async function saveSaleDb(sale: any) {
     id: sale.id,
     sessionId: sale.sessionId || sale.session_id || null,
     userId: sale.userId || sale.user_id || null,
+    userName: sale.userName || sale.user_name || null,
     customerId: sale.customer?.id || sale.customerId || sale.customer_id || null,
     customerName: sale.customer?.name || sale.customerName || sale.customer_name || 'Consumidor',
+
     subtotalCents: sale.subtotalCents ?? sale.subtotal_cents ?? totalCents,
     discountCents: sale.discountCents ?? sale.discount_cents ?? 0,
     totalCents,

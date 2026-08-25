@@ -17,6 +17,7 @@ import { CartItem, CompletedSale, Customer, SuspendedSale } from './types';
 import { useCashStore } from '../cash/cashStore';
 import { useCustomerStore } from '../customers/customerStore';
 import { useProductStore } from '../products/productStore';
+import { useUserStore } from '../users/userStore';
 import { saveSaleDb } from '../../core/database/db';
 import { triggerDrawer } from '../../core/hardware/printer';
 import { 
@@ -40,10 +41,11 @@ const formatBRL = (cents: number) => {
 };
 
 export function PosPage() {
-  const { currentSession, addMovement } = useCashStore();
-  const { customers, recordCustomerSale } = useCustomerStore();
-  const { products, loadFromDb, saveProduct, deductStockFromSale } = useProductStore();
+  const { currentSession } = useCashStore();
+  const { customers } = useCustomerStore();
+  const { products, loadFromDb, saveProduct } = useProductStore();
   const isCashOpen = !!currentSession?.isOpen;
+
 
   const {
     cart,
@@ -382,46 +384,35 @@ export function PosPage() {
     return { subtotalCents, finalTotalCents, totalCount, totalSavingsCents };
   }, [cart, generalDiscountCents]);
 
+  const isCompletingSaleRef = useRef(false);
+
   const handleCompleteSale = async (sale: CompletedSale) => {
+    if (isCompletingSaleRef.current) return;
+    isCompletingSaleRef.current = true;
+
+    // FASE 1: PERSISTÊNCIA CRÍTICA TRANSACIONAL NO SQLITE
     try {
-      const totalCashPaidCents = (sale.payments || [])
-        .filter(p => p.method === 'CASH')
-        .reduce((sum, p) => sum + p.amountCents, 0);
-
-      const netCashToDrawer = Math.max(0, totalCashPaidCents - (sale.changeCents || 0));
-
-      if (netCashToDrawer > 0) {
-        const itemsSummary = (sale.items || []).map(i => `${i.quantity}x ${i.name}`).join(', ');
-        const reasonText = itemsSummary 
-          ? `Venda PDV Cupom #${sale.id} • ${itemsSummary}` 
-          : `Venda PDV Cupom #${sale.id}`;
-        await addMovement('SALE', netCashToDrawer, reasonText, `mov-sale-${sale.id}`);
-      }
-
-      if (currentCustomer) {
-        const mainPayment = sale.payments[0]?.method || 'DINHEIRO';
-        recordCustomerSale(currentCustomer.id, sale.totalCents, cartTotals.totalCount, mainPayment, sale.id);
-      }
-
-
-      await deductStockFromSale(
-        sale.items.map(i => ({ productId: i.productId, quantity: i.quantity })),
-        sale.id
-      );
-
-      await saveSaleDb({
+      const currentUser = useUserStore.getState().currentUser;
+      const payload = {
         ...sale,
         sessionId: currentSession?.id,
-        userId: currentSession?.userId
-      });
+        userId: currentSession?.userId || currentUser?.id,
+        userName: currentSession?.userName || currentUser?.name || 'Operador de Caixa'
+      };
 
-      // Operações que não precisam ser revertidas (efeitos colaterais)
-      const savedPrinter = localStorage.getItem('mercado_selected_printer') || '';
-      if (savedPrinter) {
-        triggerDrawer(savedPrinter);
-      }
+      await saveSaleDb(payload);
+    } catch (err: any) {
+      console.error('FALHA CRÍTICA AO COMPLETAR VENDA NO BANCO:', err);
+      const msg = err?.message || String(err) || 'Erro crítico ao salvar a venda no banco de dados.';
+      showToast(msg, 'danger');
+      isCompletingSaleRef.current = false;
+      // IMPORTANTE: Carrinho e estado permanecem intactos para correção ou nova tentativa
+      return;
+    }
 
-      // Somente se tudo deu certo, limpa o estado
+    // FASE 2: PÓS-COMMIT (A VENDA JÁ EXISTE NO SQLITE E NÃO PODE SER RETENTADA)
+    try {
+      // 1. Limpa imediatamente o carrinho e prepara o modal de comprovante
       setCompletedSale(sale);
       setCart([]);
       setCurrentCustomer(null);
@@ -429,12 +420,29 @@ export function PosPage() {
       setActiveModal('RECEIPT');
       showToast(`Venda de ${formatBRL(sale.totalCents)} finalizada com sucesso!`);
 
-    } catch (err) {
-      console.error('FALHA CRÍTICA AO COMPLETAR VENDA:', err);
-      showToast('Erro crítico ao salvar a venda. Verifique o console e tente novamente.', 'danger');
-      // IMPORTANTE: Não limpa o carrinho nem o estado, permitindo uma nova tentativa.
+      // 2. Sincronização em memória dos stores (somente leitura / recarga do SQLite)
+      useProductStore.getState().loadFromDb().catch(e => console.warn('Aviso: falha ao recarregar produtos pós-venda:', e));
+      useCashStore.getState().initCash().catch(e => console.warn('Aviso: falha ao recarregar caixa pós-venda:', e));
+      useCustomerStore.getState().loadFromDb().catch(e => console.warn('Aviso: falha ao recarregar clientes pós-venda:', e));
+
+      // 3. Efeitos de hardware pós-commit (falha na gaveta não invalida a venda)
+      const savedPrinter = localStorage.getItem('mercado_selected_printer') || '';
+      if (savedPrinter) {
+        try {
+          triggerDrawer(savedPrinter);
+        } catch (e) {
+          console.warn('Aviso: falha ao acionar gaveta pós-venda:', e);
+        }
+      }
+    } catch (postCommitErr) {
+      console.warn('Aviso pós-commit (venda já gravada com sucesso no SQLite):', postCommitErr);
+      showToast('Venda registrada com sucesso! (Aviso na atualização da interface)', 'warning');
+    } finally {
+      isCompletingSaleRef.current = false;
     }
   };
+
+
 
   // TECLAS DE ATALHO GLOBAIS (F1 até F8)
   useEffect(() => {

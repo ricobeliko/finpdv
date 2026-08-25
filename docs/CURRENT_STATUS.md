@@ -72,9 +72,10 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
 
 ---
 
-## 6. Gate 3 — Cancelamento / Estorno Atômico & Open Price: VALIDADO
-* **Status:** VALIDADO LOCALMENTE — AGUARDANDO CI REMOTO
+## 6. Gate 3 — Cancelamento / Estorno Atômico & Open Price: FECHADO
+* **Status:** VALIDADO LOCALMENTE & VALIDADO NO GITHUB ACTIONS (Run ID: `32801812665`, Commit: `66f2717`)
 * [x] **Soft Cancel Total (CANCELAR != APAGAR):** Remoção total de queries `DELETE FROM sales` e `DELETE FROM sale_items` do cancelamento normal. Vendas canceladas recebem `status = 'CANCELLED'` e `cancelled_at = <timestamp>`, preservando registros originais em `sales`, `sale_items` e `sale_payments` para auditoria.
+
 
 * [x] **Transação Atômica Rust (`cancel_sale_transaction`):** Executada em conexão física única com `PRAGMA foreign_keys = ON` e `sqlx::Transaction` em `src-tauri/src/sale_cancellation.rs`.
 * [x] **Reversão Autoritativa de Estoque:** Devolução de estoque em `products` com validação `rows_affected == 1` e inserção de `inventory_movements` (tipo `REFUND`).

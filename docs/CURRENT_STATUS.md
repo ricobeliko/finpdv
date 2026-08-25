@@ -94,8 +94,8 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
 
 ---
 
-## 7. Gate 4 — Consolidação Final, Upgrade Seguro e Backup Pré-Migration: VALIDADO
-* **Status:** VALIDADO LOCALMENTE — AGUARDANDO CI REMOTO
+## 7. Gate 4 — Consolidação Final, Upgrade Seguro e Backup Pré-Migration: FECHADO
+* **Status:** FECHADO — VALIDADO LOCALMENTE E NO GITHUB ACTIONS (Run ID: 32803130539)
 * [x] **Preservação Total de Dados Existentes (Zero Data Loss):** Comprovada a preservação de 100% dos dados em migração de banco legado real (categorias, produtos, códigos de barras, preços de atacado, clientes, histórico de vendas, itens, sessões e movimentações de caixa/estoque intactos).
 * [x] **Zero Backfill Sintético:** Vendas legadas permanecem sem registros fabricados em `sale_payments` e com `status = 'COMPLETED'` e `cancelled_at = NULL`.
 * [x] **Backup Pré-Migration Automático e Idempotente no Rust:** Snapshot consistente de `mercado.db` via `VACUUM INTO` gerado no bootstrap do Tauri antes da execução de migrations do frontend, idempotente por versão (`mercado-pre-migration-v<VERSAO>.db`).
@@ -117,6 +117,7 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
 - Teste isolado de instalação antiga → nova.
 - Teste real do updater.
 - Somente depois desses testes: bump de versão, tag e publicação de release.
+
 
 
 

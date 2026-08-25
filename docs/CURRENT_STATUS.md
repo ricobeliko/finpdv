@@ -5,9 +5,9 @@
 ---
 
 ## 1. Dados do Repositório
-* **Versão do Projeto:** `0.2.0`
-* **Release Homologada:** `v0.2.0`
-* **Último Commit de Release:** `3677247 — chore(release): preparar versao 0.2.0`
+* **Versão do Projeto:** `0.2.1`
+* **Release Homologada:** `v0.2.1`
+* **Último Commit de Release:** `d70d16c — chore(release): preparar versao 0.2.1`
 * **Working Tree:** `LIMPO E HOMOLOGADO`
 * **CI Remoto (GitHub Actions):** `PASS (100% VERDE)`
 
@@ -112,3 +112,25 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
   * O canal oficial e recomendado para atualização de clientes existentes é o **Tauri Updater** integrado na aplicação.
   * Nenhuma reinstalação limpa ou intervenção manual no banco de dados é necessária.
 * **Release Pronta para Distribuição ao Cliente:** **SIM**
+
+---
+
+## 9. Gate 6 — Release v0.2.1 (Bluesoft Cosmos, Categorias Automáticas e ESC): FECHADO
+* **Status:** FECHADO — HOMOLOGADO E PUBLICADO
+* **Release Homologada:** `v0.2.1`
+* **Commit da Release:** `d70d16c`
+* **CI Pré-Release:** Run ID `32816831892` (PASS — 100% verde)
+* **Release Workflow (GitHub Actions):** Run ID `32817402850` (PASS — Tag `v0.2.1`)
+* **Artefatos Oficiais Publicados:**
+  * `Mercearia.Uber_0.2.1_x64-setup.exe` (6.864.998 bytes)
+  * `Mercearia.Uber_0.2.1_x64-setup.exe.sig` (428 bytes)
+  * `latest.json` (1.357 bytes)
+* **Entregas da Release v0.2.1:**
+  * [x] **Correção da Classificação Automática de Categorias:** Sistema de matching hierárquico priorizando Padaria, Frios/Laticínios, Bebidas, Limpeza/Higiene, Hortifrúti e Mercearia, eliminando falsos positivos de `Bebidas` em pães (ex: Panco 500g) e laticínios (ex: Iogurte Corpus).
+  * [x] **Suporte à Tecla ESC no Modal de Produtos:** Fechamento ergonômico por ESC em criação e edição, com proteção ativa contra fechamento durante o salvamento.
+  * [x] **Integração Bluesoft Cosmos (Prioridade 1):** Consulta por GTIN/EAN com extração de descrição, marca, NCM e GPC, elevando a taxa de identificação para 100% na amostra de mercado.
+  * [x] **Fallback Transparente Open Food Facts & Manual:** Fallback automático gratuito para o Open Food Facts em caso de produtos ausentes, timeouts, erros de rede ou rate-limiting (429), com suporte final desimpedido a cadastro manual.
+  * [x] **Execução Nativa no Rust (`lookup_cosmos_gtin`):** Chamada HTTP nativa via `reqwest` com `rustls-tls` no backend Tauri, eliminando restrições de `User-Agent` e bloqueios de CORS do WebView.
+  * [x] **Configurações Locais Seguras:** Persistência de token e User-Agent restrita ao `localStorage` (isolada de SQLite, logs e backups relacionais).
+  * [x] **Preservação de Dados e Backup Pré-Migration:** Snapshot consistente `mercado-pre-migration-v0.2.1.db` gerado no bootstrap antes de migrations, preservando 100% do histórico e dados relacionais.
+* **Status Final:** **RELEASE v0.2.1 PUBLICADA E HOMOLOGADA**

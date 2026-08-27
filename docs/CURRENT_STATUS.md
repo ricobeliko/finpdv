@@ -5,10 +5,9 @@
 ---
 
 ## 1. Dados do Repositório
-* **Versão do Projeto:** `0.2.2`
-* **Release Homologada:** `v0.2.2`
-* **Último Commit de Release:** `3e23947 — feat(updater): notas de versao dinamicas e bump para v0.2.2`
-* **Working Tree:** `LIMPO E HOMOLOGADO`
+* **Versão do Projeto:** `0.2.3`
+* **Release Homologada:** `v0.2.3`
+* **Working Tree:** `HOMOLOGADO E PRONTO PARA RELEASE`
 * **CI Remoto (GitHub Actions):** `PASS (100% VERDE)`
 
 ---

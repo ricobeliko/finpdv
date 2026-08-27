@@ -85,6 +85,7 @@ export function ItemQuantityModal({
       handleConfirm();
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   };
@@ -241,6 +242,7 @@ export function PaymentModal({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation();
         onClose();
         return;
       }
@@ -418,7 +420,16 @@ export function ProductSearchModal({
   );
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+    <div 
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+    >
       <div className="bg-surface w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[80vh]">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <span className="font-bold text-xs uppercase tracking-wider text-textMain flex items-center space-x-2">
@@ -497,7 +508,16 @@ export function CustomerModal({
   );
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+    <div 
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+    >
       <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <span className="font-bold text-xs uppercase tracking-wider text-textMain flex items-center space-x-2">
@@ -579,7 +599,16 @@ export function DiscountModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+    <div 
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+    >
       <div className="bg-surface w-full max-w-xs rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <span className="font-bold text-xs uppercase tracking-wider text-textMain flex items-center space-x-1.5">
@@ -646,7 +675,16 @@ export function SuspendedSalesModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+    <div 
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+    >
       <div className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[80vh]">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <span className="font-bold text-xs uppercase tracking-wider text-textMain flex items-center space-x-1.5">
@@ -731,6 +769,7 @@ export function ReceiptModal({
         handleDirectPrint();
       } else if (e.key === 'Enter' || e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation();
         onClose();
       }
     };
@@ -879,6 +918,7 @@ export function OpenPriceModal({
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   };
@@ -889,6 +929,7 @@ export function OpenPriceModal({
       handleConfirm();
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   };
@@ -898,7 +939,16 @@ export function OpenPriceModal({
   const totalCalculatedCents = Math.round(parsedPriceNum * 100 * parsedQtyNum);
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+    <div 
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+    >
       <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
         <div className="bg-primary text-white px-6 py-4 flex items-center justify-between">
           <div>
@@ -964,6 +1014,7 @@ export function OpenPriceModal({
                   handleConfirm();
                 } else if (e.key === 'Escape') {
                   e.preventDefault();
+                  e.stopPropagation();
                   onClose();
                 }
               }}
@@ -1051,6 +1102,7 @@ export function QuickProductRegisterModal({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   };

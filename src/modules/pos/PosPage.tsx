@@ -73,6 +73,15 @@ export function PosPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'warning' | 'danger' } | null>(null);
 
   const barcodeRef = useRef<HTMLInputElement>(null);
+  const lastModalClosedAt = useRef(0);
+
+  const handleCloseActiveModal = () => {
+    lastModalClosedAt.current = Date.now();
+    setActiveModal(null);
+    setPendingQuantityProduct(null);
+    setPendingOpenPrice(null);
+    setPendingQuickRegister(null);
+  };
 
   useEffect(() => {
     loadFromDb();
@@ -451,8 +460,16 @@ export function PosPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (activeModal) setActiveModal(null);
-        else handleCancelSale();
+        // Se houver qualquer modal aberto ou inclusão de item pendente, fecha apenas o modal
+        if (activeModal || pendingQuantityProduct || pendingOpenPrice || pendingQuickRegister) {
+          handleCloseActiveModal();
+          return;
+        }
+        // Se um modal acabou de ser fechado (ex: nos últimos 350ms), ignora o Escape para evitar falso cancelamento de toda a venda
+        if (Date.now() - lastModalClosedAt.current < 350) {
+          return;
+        }
+        handleCancelSale();
         return;
       }
 
@@ -462,7 +479,7 @@ export function PosPage() {
         return;
       }
 
-      if (activeModal) return;
+      if (activeModal || pendingQuantityProduct || pendingOpenPrice || pendingQuickRegister) return;
 
       switch (e.key) {
         case 'F1':
@@ -512,7 +529,7 @@ export function PosPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeModal, cart, selectedCartIndex, suspendedSales, cartTotals, isCashOpen]);
+  }, [activeModal, pendingQuantityProduct, pendingOpenPrice, pendingQuickRegister, cart, selectedCartIndex, suspendedSales, cartTotals, isCashOpen]);
 
   return (
     <div className="h-full flex flex-col space-y-4">
@@ -752,10 +769,7 @@ export function PosPage() {
           product={pendingQuantityProduct.product}
           defaultQuantity={pendingQuantityProduct.defaultQty}
           onConfirm={handleConfirmQuantity}
-          onClose={() => {
-            setActiveModal(null);
-            setPendingQuantityProduct(null);
-          }}
+          onClose={handleCloseActiveModal}
         />
       )}
 
@@ -766,7 +780,7 @@ export function PosPage() {
           cart={cart}
           customer={currentCustomer}
           discountCents={generalDiscountCents}
-          onClose={() => setActiveModal(null)}
+          onClose={handleCloseActiveModal}
           onFinishSale={handleCompleteSale}
         />
       )}
@@ -777,9 +791,9 @@ export function PosPage() {
           catalog={products}
           onSelectProduct={(p) => {
             handleAddItem(p.internalCode);
-            setActiveModal(null);
+            handleCloseActiveModal();
           }}
-          onClose={() => setActiveModal(null)}
+          onClose={handleCloseActiveModal}
         />
       )}
 
@@ -789,10 +803,7 @@ export function PosPage() {
           product={pendingOpenPrice.product}
           quantity={pendingOpenPrice.quantity}
           onConfirm={handleConfirmOpenPrice}
-          onClose={() => {
-            setActiveModal(null);
-            setPendingOpenPrice(null);
-          }}
+          onClose={handleCloseActiveModal}
         />
       )}
 
@@ -802,10 +813,7 @@ export function PosPage() {
           scannedCode={pendingQuickRegister.code}
           quantity={pendingQuickRegister.quantity}
           onSaveAndAdd={handleSaveAndAddQuickProduct}
-          onClose={() => {
-            setActiveModal(null);
-            setPendingQuickRegister(null);
-          }}
+          onClose={handleCloseActiveModal}
         />
       )}
 
@@ -816,10 +824,10 @@ export function PosPage() {
           currentCustomer={currentCustomer}
           onSelectCustomer={(c: Customer | null) => {
             setCurrentCustomer(c);
-            setActiveModal(null);
+            handleCloseActiveModal();
             showToast(`Cliente ${c ? c.name : 'removido'} vinculado.`);
           }}
-          onClose={() => setActiveModal(null)}
+          onClose={handleCloseActiveModal}
         />
       )}
 
@@ -829,10 +837,10 @@ export function PosPage() {
           subtotalCents={cartTotals.subtotalCents}
           onApply={(d: number) => {
             setGeneralDiscountCents(d);
-            setActiveModal(null);
+            handleCloseActiveModal();
             showToast(`Desconto de ${formatBRL(d)} aplicado.`);
           }}
-          onClose={() => setActiveModal(null)}
+          onClose={handleCloseActiveModal}
         />
       )}
 
@@ -842,7 +850,7 @@ export function PosPage() {
           suspendedSales={suspendedSales}
           onResume={handleResumeSale}
           onDelete={(id: string) => setSuspendedSales(prev => prev.filter(s => s.id !== id))}
-          onClose={() => setActiveModal(null)}
+          onClose={handleCloseActiveModal}
         />
       )}
 
@@ -851,7 +859,7 @@ export function PosPage() {
         <ReceiptModal
           sale={completedSale}
           onClose={() => {
-            setActiveModal(null);
+            handleCloseActiveModal();
             setCompletedSale(null);
           }}
         />

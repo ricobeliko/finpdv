@@ -1,5 +1,10 @@
 # Notas de Lançamento — Mercearia Uber
 
+## v0.2.3
+- Correção no atalho ESC do PDV: ao cancelar a adição de um item avulso ou quantidade, apenas o modal é fechado, mantendo a venda e os itens já registrados intactos
+- Bloqueio de propagação de eventos de teclado (Escape) em todos os modais de operação do caixa
+- Proteção temporal antirruído no listener global do PDV para evitar falso cancelamento de venda
+
 ## v0.2.2
 - Consulta automática de produtos por código de barras via Bluesoft Cosmos
 - Classificação inteligente de categorias (Padaria, Frios/Laticínios, Bebidas, Limpeza) sem falsos positivos

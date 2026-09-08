@@ -781,10 +781,22 @@ export async function getSessionSaleItemsMapDb(sessionId?: string): Promise<Reco
 // EXPORTAÇÃO E RESTAURAÇÃO COMPLETA DE BACKUP (FÍSICO & JSON)
 // ============================================================
 
+export interface FullDatabaseDumpOrigin {
+  installationId: string;
+  businessId: string;
+  businessCnpj: string;
+  businessCompanyName: string;
+  businessTradeName: string;
+}
+
 export interface FullDatabaseDump {
   version: string;
+  backupFormatVersion: string;
+  finpdvVersion: string;
   exportedAt: string;
+  createdAt: string;
   appName: string;
+  origin?: FullDatabaseDumpOrigin;
   recordsCount: {
     products: number;
     categories: number;
@@ -798,6 +810,8 @@ export interface FullDatabaseDump {
     suppliers: number;
     purchases: number;
     purchaseItems: number;
+    businessProfile?: number;
+    installationInfo?: number;
   };
   data: {
     categories: any[];
@@ -814,6 +828,8 @@ export interface FullDatabaseDump {
     suppliers: any[];
     purchases: any[];
     purchaseItems: any[];
+    businessProfile?: any[];
+    installationInfo?: any[];
   };
 }
 
@@ -834,7 +850,9 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
     customers,
     suppliers,
     purchases,
-    purchaseItems
+    purchaseItems,
+    businessProfile,
+    installationInfo
   ] = await Promise.all([
     db.select<any[]>('SELECT * FROM categories').catch(() => []),
     db.select<any[]>('SELECT * FROM products').catch(() => []),
@@ -849,13 +867,29 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
     db.select<any[]>('SELECT * FROM customers').catch(() => []),
     db.select<any[]>('SELECT * FROM suppliers').catch(() => []),
     db.select<any[]>('SELECT * FROM purchases').catch(() => []),
-    db.select<any[]>('SELECT * FROM purchase_items').catch(() => [])
+    db.select<any[]>('SELECT * FROM purchase_items').catch(() => []),
+    db.select<any[]>('SELECT * FROM business_profile').catch(() => []),
+    db.select<any[]>('SELECT * FROM installation_info').catch(() => [])
   ]);
+
+  const bp = businessProfile && businessProfile.length > 0 ? businessProfile[0] : null;
+  const inst = installationInfo && installationInfo.length > 0 ? installationInfo[0] : null;
+  const now = new Date();
 
   return {
     version: '1.0.0',
-    exportedAt: new Date().toLocaleString('pt-BR'),
+    backupFormatVersion: '2.0',
+    finpdvVersion: '1.0.0',
+    exportedAt: now.toLocaleString('pt-BR'),
+    createdAt: now.toISOString(),
     appName: 'FinPDV',
+    origin: {
+      installationId: inst?.installation_id || 'unknown-installation',
+      businessId: bp?.id || 'unknown-business',
+      businessCnpj: bp?.cnpj || '',
+      businessCompanyName: bp?.company_name || '',
+      businessTradeName: bp?.trade_name || ''
+    },
     recordsCount: {
       products: products.length,
       categories: categories.length,
@@ -868,7 +902,9 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
       customers: customers.length,
       suppliers: suppliers.length,
       purchases: purchases.length,
-      purchaseItems: purchaseItems.length
+      purchaseItems: purchaseItems.length,
+      businessProfile: businessProfile.length,
+      installationInfo: installationInfo.length
     },
     data: {
       categories,
@@ -884,7 +920,9 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
       customers,
       suppliers,
       purchases,
-      purchaseItems
+      purchaseItems,
+      businessProfile,
+      installationInfo
     }
   };
 }

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { invoke } from '@tauri-apps/api/core';
 import { StoreSettings, BackupRecord } from './types';
 import { resetDatabaseDb, exportFullDatabaseDumpDb, restoreFullDatabaseDumpDb, FullDatabaseDump } from '../../core/database/db';
 import { useProductStore } from '../products/productStore';
@@ -108,6 +109,18 @@ export const useSettingsStore = create<SettingsState>()(
           };
 
           triggerBrowserDownload(filename, jsonString);
+
+          try {
+            const totalRecords = Object.values(dump.recordsCount).reduce((acc: number, val: any) => acc + (Number(val) || 0), 0);
+            await invoke('db_record_backup_created', {
+              filename,
+              sizeBytes,
+              checksum,
+              recordsCount: totalRecords
+            });
+          } catch (auditErr) {
+            console.warn('Aviso: falha ao registrar auditoria de backup no backend:', auditErr);
+          }
 
           set((state) => ({
             backups: [newBackup, ...state.backups.slice(0, 19)], // guarda até 20 snapshots

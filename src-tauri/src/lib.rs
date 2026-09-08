@@ -318,6 +318,7 @@ pub fn run() {
             db_commands::db_insert_audit_log,
             db_commands::db_reset_database,
             db_commands::db_restore_database_dump,
+            db_commands::db_record_backup_created,
             db_commands::db_reprint_sale_receipt
         ])
         .run(tauri::generate_context!())

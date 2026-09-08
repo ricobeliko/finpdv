@@ -1072,22 +1072,170 @@ pub async fn db_reset_database(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn db_restore_database_dump(
-    session_state: State<'_, SessionState>,
-    db_instances: State<'_, tauri_plugin_sql::DbInstances>,
-    dump_json: String,
+fn clean_document_digits(doc: &str) -> String {
+    doc.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
+pub async fn restore_database_dump_logic(
+    pool: &Pool<Sqlite>,
+    dump_json: &str,
+    user_id: Option<&str>,
+    username: Option<&str>,
+    role: Option<&str>,
 ) -> Result<String, String> {
-    let pool = get_pool(&db_instances)?;
-    require_permission(&session_state, &pool, "backup.restore").await?;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let now_date_iso = format!("2026-09-08T{:010}", now_unix);
 
-    let dump: serde_json::Value = serde_json::from_str(&dump_json)
-        .map_err(|e| format!("Formato de backup inválido: {}", e))?;
+    // 1. Audit - Início
+    let audit_start_id = format!("aud-rst-start-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, 'backup.restore_started', 'backup', NULL, '{\"status\":\"STARTED\"}', ?)"
+    )
+    .bind(&audit_start_id)
+    .bind(user_id)
+    .bind(username)
+    .bind(role)
+    .bind(&now_date_iso)
+    .execute(pool)
+    .await;
 
-    let data = dump
-        .get("data")
-        .ok_or_else(|| "Arquivo de backup sem campo 'data'".to_string())?;
+    // 2. Parse e validação estrutural
+    let dump: serde_json::Value = match serde_json::from_str(dump_json) {
+        Ok(v) => v,
+        Err(e) => {
+            let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+            let _ = sqlx::query(
+                "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                 VALUES (?, ?, ?, ?, 'backup.restore_failed', 'backup', NULL, '{\"reason\":\"PARSE_ERROR\"}', ?)"
+            )
+            .bind(&audit_fail_id)
+            .bind(user_id)
+            .bind(username)
+            .bind(role)
+            .bind(&now_date_iso)
+            .execute(pool)
+            .await;
 
+            return Err(format!("Formato de backup inválido: {}", e));
+        }
+    };
+
+    let data = match dump.get("data") {
+        Some(d) if d.is_object() => d,
+        _ => {
+            let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+            let _ = sqlx::query(
+                "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                 VALUES (?, ?, ?, ?, 'backup.restore_failed', 'backup', NULL, '{\"reason\":\"MISSING_DATA_FIELD\"}', ?)"
+            )
+            .bind(&audit_fail_id)
+            .bind(user_id)
+            .bind(username)
+            .bind(role)
+            .bind(&now_date_iso)
+            .execute(pool)
+            .await;
+
+            return Err("Arquivo de backup inválido ou sem campo 'data'".to_string());
+        }
+    };
+
+    // 3. Validação de Business Identity vs Installation Identity
+    // Obter dados da empresa cadastrada no banco atual
+    let current_business: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT id, cnpj, corporate_name FROM business_profile LIMIT 1"
+    )
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None);
+
+    // Extrair identificadores de empresa do backup (origin ou data.businessProfile)
+    let mut backup_cnpj = String::new();
+    let mut backup_business_id = String::new();
+
+    if let Some(origin) = dump.get("origin") {
+        if let Some(cnpj) = origin.get("businessCnpj").and_then(|v| v.as_str()) {
+            backup_cnpj = cnpj.trim().to_string();
+        }
+        if let Some(bid) = origin.get("businessId").and_then(|v| v.as_str()) {
+            backup_business_id = bid.trim().to_string();
+        }
+    }
+
+    if backup_cnpj.is_empty() {
+        if let Some(bp_arr) = data.get("businessProfile").and_then(|v| v.as_array()) {
+            if let Some(first_bp) = bp_arr.first() {
+                if let Some(cnpj) = first_bp.get("cnpj").and_then(|v| v.as_str()) {
+                    backup_cnpj = cnpj.trim().to_string();
+                }
+                if backup_business_id.is_empty() {
+                    if let Some(id) = first_bp.get("id").and_then(|v| v.as_str()) {
+                        backup_business_id = id.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    // Se a máquina atual já possui empresa configurada:
+    if let Some((curr_id, curr_cnpj_opt, _)) = current_business {
+        let curr_cnpj = curr_cnpj_opt.unwrap_or_default().trim().to_string();
+        let clean_curr = clean_document_digits(&curr_cnpj);
+        let clean_bkp = clean_document_digits(&backup_cnpj);
+
+        // Se ambos têm CNPJ e diferem -> BLOQUEIO
+        if !clean_curr.is_empty() && !clean_bkp.is_empty() && clean_curr != clean_bkp {
+            let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+            let err_msg = format!(
+                "RESTORE BLOQUEADO: O arquivo de backup pertence a outra empresa (Backup CNPJ: {}, Atual: {}). A restauração entre empresas distintas é proibida por segurança.",
+                backup_cnpj, curr_cnpj
+            );
+            let _ = sqlx::query(
+                "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                 VALUES (?, ?, ?, ?, 'backup.restore_failed', 'backup', NULL, '{\"reason\":\"WRONG_BUSINESS_CNPJ\"}', ?)"
+            )
+            .bind(&audit_fail_id)
+            .bind(user_id)
+            .bind(username)
+            .bind(role)
+            .bind(&now_date_iso)
+            .execute(pool)
+            .await;
+
+            return Err(err_msg);
+        }
+
+        // Se ambos têm business_id e diferem (e nenhum é desconhecido) -> BLOQUEIO
+        if !curr_id.is_empty() && !backup_business_id.is_empty()
+            && curr_id != "unknown-business" && backup_business_id != "unknown-business"
+            && curr_id != backup_business_id
+        {
+            let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+            let err_msg = format!(
+                "RESTORE BLOQUEADO: O identificador da empresa no backup ('{}') não corresponde à empresa cadastrada nesta máquina ('{}').",
+                backup_business_id, curr_id
+            );
+            let _ = sqlx::query(
+                "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                 VALUES (?, ?, ?, ?, 'backup.restore_failed', 'backup', NULL, '{\"reason\":\"WRONG_BUSINESS_ID\"}', ?)"
+            )
+            .bind(&audit_fail_id)
+            .bind(user_id)
+            .bind(username)
+            .bind(role)
+            .bind(&now_date_iso)
+            .execute(pool)
+            .await;
+
+            return Err(err_msg);
+        }
+    }
+
+    // 4. Iniciar transação atômica
     let mut tx = pool
         .begin()
         .await
@@ -1115,21 +1263,31 @@ pub async fn db_restore_database_dump(
     if let Some(products) = data.get("products").and_then(|p| p.as_array()) {
         for p in products {
             let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            let internal_code = p.get("internal_code").and_then(|v| v.as_str()).unwrap_or("");
+            let internal_code = p.get("internal_code").and_then(|v| v.as_str()).or_else(|| p.get("internalCode").and_then(|v| v.as_str())).unwrap_or("");
             let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let category_id = p.get("category_id").and_then(|v| v.as_str());
-            let unit_measure = p.get("unit_measure").and_then(|v| v.as_str()).unwrap_or("UN");
-            let cost_price_cents = p.get("cost_price_cents").and_then(|v| v.as_i64()).unwrap_or(0);
-            let retail_price_cents = p.get("retail_price_cents").and_then(|v| v.as_i64()).unwrap_or(0);
-            let current_stock = p.get("current_stock").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let min_stock = p.get("min_stock").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let is_weighable = if p.get("is_weighable").and_then(|v| v.as_bool()).unwrap_or(false) { 1i64 } else { 0i64 };
-            let is_active = if p.get("is_active").and_then(|v| v.as_bool()).unwrap_or(true) { 1i64 } else { 0i64 };
+            let category_id = p.get("category_id").and_then(|v| v.as_str()).or_else(|| p.get("categoryId").and_then(|v| v.as_str()));
+            let unit_measure = p.get("unit_measure").and_then(|v| v.as_str()).or_else(|| p.get("unitMeasure").and_then(|v| v.as_str())).unwrap_or("UN");
+            let cost_price_cents = p.get("cost_price_cents").and_then(|v| v.as_i64()).or_else(|| p.get("costPriceCents").and_then(|v| v.as_i64())).unwrap_or(0);
+            let retail_price_cents = p.get("retail_price_cents").and_then(|v| v.as_i64()).or_else(|| p.get("retailPriceCents").and_then(|v| v.as_i64())).unwrap_or(0);
+            let current_stock = p.get("current_stock").and_then(|v| v.as_f64()).or_else(|| p.get("currentStock").and_then(|v| v.as_f64())).unwrap_or(0.0);
+            let min_stock = p.get("min_stock").and_then(|v| v.as_f64()).or_else(|| p.get("minStock").and_then(|v| v.as_f64())).unwrap_or(0.0);
+            let allow_fractional = if p.get("allow_fractional_sale").and_then(|v| v.as_bool())
+                .or_else(|| p.get("isWeighable").and_then(|v| v.as_bool()))
+                .or_else(|| p.get("is_weighable").and_then(|v| v.as_bool()))
+                .unwrap_or(false)
+            {
+                1i64
+            } else {
+                0i64
+            };
+            let notes = p.get("notes").and_then(|v| v.as_str());
+            let created_at = p.get("created_at").and_then(|v| v.as_str()).or_else(|| p.get("createdAt").and_then(|v| v.as_str())).unwrap_or(&now_date_iso);
+            let updated_at = p.get("updated_at").and_then(|v| v.as_str()).or_else(|| p.get("updatedAt").and_then(|v| v.as_str())).unwrap_or(&now_date_iso);
 
-            if !id.is_empty() {
-                let _ = sqlx::query(
-                    r#"INSERT INTO products (id, internal_code, name, category_id, unit_measure, cost_price_cents, retail_price_cents, current_stock, min_stock, is_weighable, is_active)
-                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            if !id.is_empty() && !internal_code.is_empty() {
+                if let Err(e) = sqlx::query(
+                    r#"INSERT INTO products (id, internal_code, name, category_id, unit_measure, cost_price_cents, retail_price_cents, current_stock, min_stock, allow_fractional_sale, notes, created_at, updated_at)
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                        ON CONFLICT(id) DO UPDATE SET
                          internal_code = excluded.internal_code,
                          name = excluded.name,
@@ -1139,8 +1297,9 @@ pub async fn db_restore_database_dump(
                          retail_price_cents = excluded.retail_price_cents,
                          current_stock = excluded.current_stock,
                          min_stock = excluded.min_stock,
-                         is_weighable = excluded.is_weighable,
-                         is_active = excluded.is_active"#
+                         allow_fractional_sale = excluded.allow_fractional_sale,
+                         notes = excluded.notes,
+                         updated_at = excluded.updated_at"#
                 )
                 .bind(id)
                 .bind(internal_code)
@@ -1151,10 +1310,33 @@ pub async fn db_restore_database_dump(
                 .bind(retail_price_cents)
                 .bind(current_stock)
                 .bind(min_stock)
-                .bind(is_weighable)
-                .bind(is_active)
+                .bind(allow_fractional)
+                .bind(notes)
+                .bind(created_at)
+                .bind(updated_at)
                 .execute(&mut *tx)
-                .await;
+                .await
+                {
+                    let _ = tx.rollback().await;
+                    let err_str = e.to_string();
+                    let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+                    let _ = sqlx::query(
+                        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                         VALUES (?, ?, ?, ?, 'backup.restore_failed', 'backup', NULL, '{\"reason\":\"PRODUCT_RESTORE_ERROR\"}', ?)"
+                    )
+                    .bind(&audit_fail_id)
+                    .bind(user_id)
+                    .bind(username)
+                    .bind(role)
+                    .bind(&now_date_iso)
+                    .execute(pool)
+                    .await;
+
+                    if err_str.to_lowercase().contains("foreign key") {
+                        return Err(format!("Falha de integridade referencial no produto '{}': chave estrangeira inválida.", name));
+                    }
+                    return Err(format!("Erro ao restaurar produto '{}': {}", name, err_str));
+                }
             }
         }
     }
@@ -1330,19 +1512,18 @@ pub async fn db_restore_database_dump(
         }
     }
 
-    // Pagamentos de vendas
+    // Pagamentos de vendas (corrigido: 4 colunas)
     if let Some(payments) = data.get("salePayments").and_then(|p| p.as_array()) {
         for p in payments {
             let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("");
             if !id.is_empty() {
                 let _ = sqlx::query(
-                    "INSERT INTO sale_payments (id, sale_id, method, amount_cents, created_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(id) DO NOTHING"
+                    "INSERT INTO sale_payments (id, sale_id, method, amount_cents) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(id) DO NOTHING"
                 )
                 .bind(id)
                 .bind(p.get("sale_id").and_then(|v| v.as_str()))
                 .bind(p.get("method").and_then(|v| v.as_str()))
                 .bind(p.get("amount_cents").and_then(|v| v.as_i64()).unwrap_or(0))
-                .bind(p.get("created_at").and_then(|v| v.as_str()))
                 .execute(&mut *tx)
                 .await;
             }
@@ -1504,11 +1685,178 @@ pub async fn db_restore_database_dump(
         }
     }
 
+    // Business Profile (se presente no backup e máquina limpa ou mesma empresa)
+    if let Some(bp_arr) = data.get("businessProfile").and_then(|v| v.as_array()) {
+        if let Some(bp) = bp_arr.first() {
+            let id = bp.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let trade_name = bp.get("trade_name").and_then(|v| v.as_str()).unwrap_or("");
+            if !id.is_empty() && !trade_name.is_empty() {
+                let _ = sqlx::query(
+                    r#"INSERT INTO business_profile (id, trade_name, corporate_name, cnpj, phone, email, address, logo, receipt_footer_msg, created_at, updated_at)
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                       ON CONFLICT(id) DO UPDATE SET
+                         trade_name = excluded.trade_name,
+                         corporate_name = excluded.corporate_name,
+                         cnpj = excluded.cnpj,
+                         phone = excluded.phone,
+                         email = excluded.email,
+                         address = excluded.address,
+                         logo = excluded.logo,
+                         receipt_footer_msg = excluded.receipt_footer_msg,
+                         updated_at = excluded.updated_at"#
+                )
+                .bind(id)
+                .bind(trade_name)
+                .bind(bp.get("corporate_name").and_then(|v| v.as_str()))
+                .bind(bp.get("cnpj").and_then(|v| v.as_str()))
+                .bind(bp.get("phone").and_then(|v| v.as_str()))
+                .bind(bp.get("email").and_then(|v| v.as_str()))
+                .bind(bp.get("address").and_then(|v| v.as_str()))
+                .bind(bp.get("logo").and_then(|v| v.as_str()))
+                .bind(bp.get("receipt_footer_msg").and_then(|v| v.as_str()).unwrap_or("Obrigado pela preferência!"))
+                .bind(bp.get("created_at").and_then(|v| v.as_str()).unwrap_or(&now_date_iso))
+                .bind(bp.get("updated_at").and_then(|v| v.as_str()).unwrap_or(&now_date_iso))
+                .execute(&mut *tx)
+                .await;
+            }
+        }
+    }
+
+    // 5. Validação de integridade referencial antes do commit (foreign_key_check)
+    let fk_violations: Vec<(String, i64, String, i64)> = match sqlx::query_as("PRAGMA foreign_key_check")
+        .fetch_all(&mut *tx)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(_) => Vec::new(),
+    };
+
+    if !fk_violations.is_empty() {
+        let _ = tx.rollback().await;
+        let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let _ = sqlx::query(
+            "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+             VALUES (?, ?, ?, ?, 'backup.restore_failed', 'backup', NULL, '{\"reason\":\"FOREIGN_KEY_VIOLATION\"}', ?)"
+        )
+        .bind(&audit_fail_id)
+        .bind(user_id)
+        .bind(username)
+        .bind(role)
+        .bind(&now_date_iso)
+        .execute(pool)
+        .await;
+
+        return Err(format!(
+            "Falha de integridade referencial: {} violações de chave estrangeira encontradas no backup. Restauração cancelada e banco original preservado.",
+            fk_violations.len()
+        ));
+    }
+
+    // 6. Validação de integridade física antes do commit (quick_check)
+    let quick_check_row: Option<(String,)> = sqlx::query_as("PRAGMA quick_check")
+        .fetch_optional(&mut *tx)
+        .await
+        .unwrap_or(None);
+
+    if let Some((status,)) = quick_check_row {
+        if status.to_lowercase() != "ok" {
+            let _ = tx.rollback().await;
+            let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+            let _ = sqlx::query(
+                "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                 VALUES (?, ?, ?, ?, 'backup.restore_failed', 'backup', NULL, '{\"reason\":\"CORRUPTED_DATABASE\"}', ?)"
+            )
+            .bind(&audit_fail_id)
+            .bind(user_id)
+            .bind(username)
+            .bind(role)
+            .bind(&now_date_iso)
+            .execute(pool)
+            .await;
+
+            return Err(format!("Falha de integridade física no banco de dados após aplicação do backup: {}", status));
+        }
+    }
+
+    // 7. Commit
     tx.commit()
         .await
         .map_err(|e| format!("Erro ao efetivar restore: {}", e))?;
 
-    Ok("Restauração concluída com sucesso!".to_string())
+    // 8. Audit - Sucesso
+    let audit_comp_id = format!("aud-rst-comp-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, 'backup.restore_completed', 'backup', NULL, '{\"status\":\"SUCCESS\"}', ?)"
+    )
+    .bind(&audit_comp_id)
+    .bind(user_id)
+    .bind(username)
+    .bind(role)
+    .bind(&now_date_iso)
+    .execute(pool)
+    .await;
+
+    Ok("Restauração concluída com sucesso e integridade validada!".to_string())
+}
+
+#[tauri::command]
+pub async fn db_restore_database_dump(
+    session_state: State<'_, SessionState>,
+    db_instances: State<'_, tauri_plugin_sql::DbInstances>,
+    dump_json: String,
+) -> Result<String, String> {
+    let pool = get_pool(&db_instances)?;
+    let session = require_permission(&session_state, &pool, "backup.restore").await?;
+    restore_database_dump_logic(
+        &pool,
+        &dump_json,
+        Some(&session.user_id),
+        Some(&session.username),
+        Some(&session.role),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn db_record_backup_created(
+    session_state: State<'_, SessionState>,
+    db_instances: State<'_, tauri_plugin_sql::DbInstances>,
+    filename: String,
+    size_bytes: i64,
+    checksum: String,
+    records_count: i64,
+) -> Result<(), String> {
+    let pool = get_pool(&db_instances)?;
+    let session = require_permission(&session_state, &pool, "backup.create").await?;
+
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let audit_id = format!("aud-bkp-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let audit_details = format!(
+        r#"{{"filename":"{}","sizeBytes":{},"checksum":"{}","recordsCount":{}}}"#,
+        filename, size_bytes, checksum, records_count
+    );
+    let now_date_iso = format!("2026-09-08T{:010}", now_unix);
+
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, 'backup.created', 'backup', ?, ?, ?)"
+    )
+    .bind(&audit_id)
+    .bind(&session.user_id)
+    .bind(&session.username)
+    .bind(&session.role)
+    .bind(&filename)
+    .bind(&audit_details)
+    .bind(&now_date_iso)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("Erro ao registrar auditoria de backup: {}", e))?;
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1923,6 +2271,247 @@ pub mod reprint_tests {
             .unwrap();
 
             assert!(target_sale.is_none(), "Venda inexistente deve retornar None e falhar");
+        });
+    }
+}
+
+#[cfg(test)]
+mod restore_tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn create_empty_test_db() -> Pool<Sqlite> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db_bootstrap::bootstrap_database(&pool).await.unwrap();
+        pool
+    }
+
+    #[test]
+    fn test_restore_corrupted_json_fails() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_empty_test_db().await;
+            let corrupted_json = "{ invalid_json: 123";
+            let res = restore_database_dump_logic(&pool, corrupted_json, Some("u1"), Some("admin"), Some("CLIENT_ADMIN")).await;
+            assert!(res.is_err(), "JSON corrompido deve falhar");
+            assert!(res.unwrap_err().contains("Formato de backup inválido"));
+        });
+    }
+
+    #[test]
+    fn test_restore_missing_data_fails() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_empty_test_db().await;
+            let json_without_data = r#"{"version":"2.0","exportedAt":"2026-09-08"}"#;
+            let res = restore_database_dump_logic(&pool, json_without_data, Some("u1"), Some("admin"), Some("CLIENT_ADMIN")).await;
+            assert!(res.is_err(), "Backup sem campo data deve falhar");
+            assert!(res.unwrap_err().contains("sem campo 'data'"));
+        });
+    }
+
+    #[test]
+    fn test_restore_wrong_business_cnpj_is_blocked() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_empty_test_db().await;
+
+            // Cadastra empresa atual com CNPJ 11.111.111/0001-11
+            sqlx::query(
+                "INSERT INTO business_profile (id, trade_name, corporate_name, cnpj, created_at, updated_at)
+                 VALUES ('biz-1', 'Padaria Alvorada', 'Alvorada LTDA', '11.111.111/0001-11', '2026-01-01', '2026-01-01')"
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            // Dump de outra empresa com CNPJ 22.222.222/0001-22
+            let wrong_business_dump = serde_json::json!({
+                "version": "1.0.0",
+                "backupFormatVersion": "2.0",
+                "origin": {
+                    "businessId": "biz-2",
+                    "businessCnpj": "22.222.222/0001-22",
+                    "businessTradeName": "Mercado Central"
+                },
+                "data": {
+                    "categories": [{"id": "cat-x", "name": "Bebidas"}],
+                    "products": []
+                }
+            });
+
+            let res = restore_database_dump_logic(&pool, &wrong_business_dump.to_string(), Some("u1"), Some("admin"), Some("CLIENT_ADMIN")).await;
+            assert!(res.is_err(), "Restauração de empresa diferente deve ser bloqueada");
+            let err_msg = res.unwrap_err();
+            assert!(err_msg.contains("RESTORE BLOQUEADO"), "Mensagem deve indicar bloqueio de segurança: {}", err_msg);
+
+            // Confirma que a categoria NÃO foi restaurada
+            let cat: Option<(String,)> = sqlx::query_as("SELECT id FROM categories WHERE id = 'cat-x'")
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+            assert!(cat.is_none(), "Banco não pode sofrer mutação quando empresa for divergente");
+        });
+    }
+
+    #[test]
+    fn test_restore_valid_same_business_succeeds() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_empty_test_db().await;
+
+            // Cadastra empresa atual com CNPJ 11.111.111/0001-11
+            sqlx::query(
+                "INSERT INTO business_profile (id, trade_name, corporate_name, cnpj, created_at, updated_at)
+                 VALUES ('biz-1', 'Padaria Alvorada', 'Alvorada LTDA', '11.111.111/0001-11', '2026-01-01', '2026-01-01')"
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            // Dump da MESMA empresa
+            let same_business_dump = serde_json::json!({
+                "version": "1.0.0",
+                "backupFormatVersion": "2.0",
+                "origin": {
+                    "businessId": "biz-1",
+                    "businessCnpj": "11.111.111/0001-11",
+                    "businessTradeName": "Padaria Alvorada"
+                },
+                "data": {
+                    "categories": [{"id": "cat-ok", "name": "Padaria"}],
+                    "products": [{
+                        "id": "prod-pao",
+                        "internal_code": "PAO01",
+                        "name": "Pão Francês",
+                        "category_id": "cat-ok",
+                        "unit_measure": "KG",
+                        "retail_price_cents": 1200,
+                        "current_stock": 100.0,
+                        "min_stock": 10.0,
+                        "is_weighable": true,
+                        "is_active": true
+                    }]
+                }
+            });
+
+            let res = restore_database_dump_logic(&pool, &same_business_dump.to_string(), Some("u1"), Some("admin"), Some("CLIENT_ADMIN")).await;
+            assert!(res.is_ok(), "Restauração da mesma empresa deve passar: {:?}", res);
+
+            // Confirma restauração dos dados
+            let prod_name: (String,) = sqlx::query_as("SELECT name FROM products WHERE id = 'prod-pao'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(prod_name.0, "Pão Francês");
+        });
+    }
+
+    #[test]
+    fn test_restore_disaster_recovery_clean_install_succeeds() {
+        tauri::async_runtime::block_on(async {
+            // Instalação limpa em novo computador (sem business_profile)
+            let pool = create_empty_test_db().await;
+
+            let dr_dump = serde_json::json!({
+                "version": "1.0.0",
+                "backupFormatVersion": "2.0",
+                "origin": {
+                    "installationId": "pc-antigo-queimado",
+                    "businessId": "biz-recuperada",
+                    "businessCnpj": "99.888.777/0001-66",
+                    "businessTradeName": "Mercado Esperança"
+                },
+                "data": {
+                    "businessProfile": [{
+                        "id": "biz-recuperada",
+                        "trade_name": "Mercado Esperança",
+                        "corporate_name": "Esperança LTDA",
+                        "cnpj": "99.888.777/0001-66"
+                    }],
+                    "categories": [{"id": "cat-dr", "name": "Mercearia"}],
+                    "products": [{
+                        "id": "prod-feijao",
+                        "internal_code": "FEIJ01",
+                        "name": "Feijão Carioca",
+                        "category_id": "cat-dr",
+                        "unit_measure": "UN",
+                        "retail_price_cents": 850,
+                        "current_stock": 25.0,
+                        "min_stock": 5.0,
+                        "is_weighable": false,
+                        "is_active": true
+                    }]
+                }
+            });
+
+            let res = restore_database_dump_logic(&pool, &dr_dump.to_string(), Some("u1"), Some("admin"), Some("CLIENT_ADMIN")).await;
+            assert!(res.is_ok(), "Disaster recovery em novo PC limpo deve ser permitido com sucesso: {:?}", res);
+
+            // Confirma que a empresa e produtos foram restaurados
+            let biz_name: (String,) = sqlx::query_as("SELECT trade_name FROM business_profile WHERE id = 'biz-recuperada'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(biz_name.0, "Mercado Esperança");
+
+            let prod_name: (String,) = sqlx::query_as("SELECT name FROM products WHERE id = 'prod-feijao'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(prod_name.0, "Feijão Carioca");
+        });
+    }
+
+    #[test]
+    fn test_restore_foreign_key_violation_fails_and_preserves_db() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_empty_test_db().await;
+
+            // Insere categoria inicial válida
+            sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-original', 'Original')")
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // Dump com violação de chave estrangeira (produto apontando para category_id inexistente 'cat-inexistente')
+            let invalid_fk_dump = serde_json::json!({
+                "version": "1.0.0",
+                "backupFormatVersion": "2.0",
+                "data": {
+                    "categories": [],
+                    "products": [{
+                        "id": "prod-orfao",
+                        "internal_code": "ORF01",
+                        "name": "Produto Órfão",
+                        "category_id": "cat-inexistente",
+                        "unit_measure": "UN",
+                        "retail_price_cents": 500,
+                        "current_stock": 10.0,
+                        "min_stock": 1.0,
+                        "is_weighable": false,
+                        "is_active": true
+                    }]
+                }
+            });
+
+            let res = restore_database_dump_logic(&pool, &invalid_fk_dump.to_string(), Some("u1"), Some("admin"), Some("CLIENT_ADMIN")).await;
+            assert!(res.is_err(), "Dump com violação referencial deve falhar");
+            let err_msg = res.unwrap_err();
+            assert!(err_msg.contains("integridade referencial"), "Erro deve apontar integridade referencial: {}", err_msg);
+
+            // Confirma que o produto órfão NÃO foi salvo e que o banco permaneceu intacto
+            let orfao: Option<(String,)> = sqlx::query_as("SELECT id FROM products WHERE id = 'prod-orfao'")
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+            assert!(orfao.is_none(), "O produto órfão não deve existir no banco após rollback");
+
+            let cat_orig: (String,) = sqlx::query_as("SELECT name FROM categories WHERE id = 'cat-original'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(cat_orig.0, "Original", "Dado original pré-restore deve ser 100% preservado");
         });
     }
 }

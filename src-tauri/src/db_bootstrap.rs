@@ -317,5 +317,92 @@ pub async fn bootstrap_database(pool: &Pool<Sqlite>) -> Result<(), String> {
         .await;
     }
 
+    // 5. Validação rápida de integridade física e lógica no startup
+    check_database_health(pool).await?;
+
     Ok(())
 }
+
+/// Executa verificação rápida de integridade e chaves estrangeiras no startup.
+/// Se houver corrupção física ou violação de FK, retorna Err descritivo.
+pub async fn check_database_health(pool: &Pool<Sqlite>) -> Result<(), String> {
+    // 1. PRAGMA quick_check;
+    let (quick_check_res,): (String,) = sqlx::query_as("PRAGMA quick_check;")
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("Falha ao executar quick_check no startup: {}", e))?;
+
+    if quick_check_res.to_lowercase() != "ok" {
+        return Err(format!(
+            "CORRUPÇÃO DETECTADA: O banco finpdv.db falhou na verificação rápida ('{}'). Operações comerciais bloqueadas para proteger seus dados. Acesse Manutenção para restaurar um backup.",
+            quick_check_res
+        ));
+    }
+
+    // 2. PRAGMA foreign_key_check;
+    let fk_violations: Vec<(String, i64, String, i64)> = sqlx::query_as("PRAGMA foreign_key_check;")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Falha ao executar foreign_key_check no startup: {}", e))?;
+
+    if !fk_violations.is_empty() {
+        return Err(format!(
+            "INCONSISTÊNCIA DETECTADA: Existem {} violações de integridade referencial no banco finpdv.db. Operações comerciais bloqueadas.",
+            fk_violations.len()
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    #[test]
+    fn test_healthy_database_passes_quick_health_check() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+
+            bootstrap_database(&pool).await.unwrap();
+
+            let health = check_database_health(&pool).await;
+            assert!(health.is_ok(), "Banco íntegro deve passar no quick_health_check");
+        });
+    }
+
+    #[test]
+    fn test_foreign_key_violation_caught_by_health_check() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+
+            bootstrap_database(&pool).await.unwrap();
+
+            // Desativa temporariamente FK para injetar inconsistência referencial proposital
+            sqlx::query("PRAGMA foreign_keys = OFF;").execute(&pool).await.unwrap();
+            sqlx::query(
+                "INSERT INTO sale_items (id, sale_id, product_id, product_name, quantity, unit_price_cents, cost_price_cents, total_cents)
+                 VALUES ('item-orphan-1', 'sale-nonexistent', 'prod-open-price-1', 'Item', 1.0, 100, 50, 100)"
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("PRAGMA foreign_keys = ON;").execute(&pool).await.unwrap();
+
+            let health = check_database_health(&pool).await;
+            assert!(health.is_err(), "Violação de FK deve ser detectada e falhar");
+            let err_msg = health.unwrap_err();
+            assert!(err_msg.contains("violações de integridade referencial"), "Mensagem deve indicar violação de FK");
+        });
+    }
+}
+

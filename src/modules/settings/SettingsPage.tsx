@@ -37,6 +37,7 @@ import { getInstalledPrinters, testPrinter, triggerDrawer } from '../../core/har
 import { checkForAppUpdates, installAndRestartApp, parseReleaseHighlights, UpdateStatus } from '../../core/updater/updaterService';
 import { useFinPdvStore } from '../../core/finpdv/finpdvStore';
 import { authService } from '../../core/auth/authService';
+import { sanitizeErrorMessage } from '../../core/utils/errorSanitizer';
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 Bytes';
@@ -161,7 +162,7 @@ export function SettingsPage() {
       await testPrinter(printer);
       showToast(`Cupom de teste enviado para "${printer}"!`);
     } catch (err: any) {
-      alert(`Erro no teste de impressão: ${err.message || err}`);
+      alert(sanitizeErrorMessage(err, 'Erro no teste de impressão.'));
     } finally {
       setIsTesting(false);
     }
@@ -177,7 +178,7 @@ export function SettingsPage() {
       await triggerDrawer(printer);
       showToast('Pulso elétrico de abertura enviado para a gaveta!');
     } catch (err: any) {
-      alert(`Erro no teste da gaveta: ${err.message || err}`);
+      alert(sanitizeErrorMessage(err, 'Erro no teste da gaveta.'));
     }
   };
 
@@ -186,7 +187,7 @@ export function SettingsPage() {
       const bkp = await createBackup('MANUAL');
       showToast(`Backup "${bkp.filename}" gerado e baixado no computador!`);
     } catch (err: any) {
-      alert(`Erro ao gerar backup: ${err.message || err}`);
+      alert(sanitizeErrorMessage(err, 'Erro ao gerar backup.'));
     }
   };
 
@@ -198,7 +199,7 @@ export function SettingsPage() {
       setSelectedBackup(null);
       showToast('Base de dados restaurada com sucesso!');
     } catch (err: any) {
-      alert(`Falha na restauração do backup: ${err.message || err}`);
+      alert(sanitizeErrorMessage(err, 'Falha na restauração do backup.'));
     }
   };
 
@@ -218,7 +219,7 @@ export function SettingsPage() {
     } catch (err: any) {
       console.error("Erro ao importar backup:", err);
       if (err.message !== 'Dialog closed') {
-        alert(`Falha na importação: ${err.message}`);
+        alert(sanitizeErrorMessage(err, 'Falha na importação do backup.'));
       }
     }
   };

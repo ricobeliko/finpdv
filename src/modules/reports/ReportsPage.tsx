@@ -21,6 +21,7 @@ import { useUserStore } from '../users/userStore';
 import { useProductStore } from '../products/productStore';
 import { useCustomerStore } from '../customers/customerStore';
 import { useFocusTrap } from '../../shared/hooks/useFocusTrap';
+import { sanitizeErrorMessage } from '../../core/utils/errorSanitizer';
 
 const MONTH_ABBR = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
 
@@ -250,7 +251,7 @@ export function ReportsPage() {
       }
     } catch (err: any) {
       console.error('Erro ao cancelar venda:', err);
-      showToast(err?.message || String(err) || 'Erro ao realizar cancelamento.', 'danger');
+      showToast(sanitizeErrorMessage(err, 'Erro ao realizar cancelamento.'), 'danger');
     } finally {
       isCancellingSaleRef.current = false;
     }
@@ -269,7 +270,7 @@ export function ReportsPage() {
       });
       showToast(res?.message || `Comprovante da venda #${saleId} reimpresso!`, 'success');
     } catch (err: any) {
-      showToast(err?.message || String(err) || 'Erro ao reimprimir comprovante.', 'danger');
+      showToast(sanitizeErrorMessage(err, 'Erro ao reimprimir comprovante.'), 'danger');
     }
   };
 

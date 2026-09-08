@@ -24,6 +24,7 @@ import { useCashStore } from '../../cash/cashStore';
 import { useFinPdvStore } from '../../../core/finpdv/finpdvStore';
 import { getSelectedPrinter } from '../../../core/utils/storageMigration';
 import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
+import { sanitizeErrorMessage } from '../../../core/utils/errorSanitizer';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -795,7 +796,7 @@ export function ReceiptModal({
     try {
       await printReceipt(sale, savedPrinter);
     } catch (err: any) {
-      alert(`Falha ao imprimir: ${err.message || err}`);
+      alert(sanitizeErrorMessage(err, 'Falha na comunicação com a impressora.'));
     } finally {
       setIsPrinting(false);
     }

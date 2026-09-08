@@ -18,6 +18,7 @@ import { useCashStore, CashMovement } from './cashStore';
 import { useUserStore } from '../users/userStore';
 import { usePosStore } from '../pos/posStore';
 import { getSessionSaleItemsMapDb } from '../../core/database/db';
+import { sanitizeErrorMessage } from '../../core/utils/errorSanitizer';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -222,7 +223,7 @@ export function CashPage() {
       setRefundReason('');
     } catch (err: any) {
       console.error('Erro ao estornar lançamento:', err);
-      showToast(err?.message || String(err) || 'Erro ao realizar estorno.', 'danger');
+      showToast(sanitizeErrorMessage(err, 'Erro ao realizar estorno.'), 'danger');
     } finally {
       isRefundingRef.current = false;
     }

@@ -5,6 +5,7 @@ import { lookupBarcodeInfo } from '../../../core/services/barcodeLookupService';
 import { useProductStore, generateNextInternalCode } from '../productStore';
 import { getLastCategoryId, setLastCategoryId } from '../../../core/utils/storageMigration';
 import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
+import { sanitizeErrorMessage } from '../../../core/utils/errorSanitizer';
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -354,7 +355,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
         tierPrices
       });
     } catch (err: any) {
-      alert(`Erro ao salvar produto no banco: ${err?.message || 'Falha na persistência SQLite.'}`);
+      alert(sanitizeErrorMessage(err, 'Erro ao salvar produto no banco de dados.'));
       submittingRef.current = false;
       setIsSubmitting(false);
     }

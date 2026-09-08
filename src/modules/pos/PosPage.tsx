@@ -24,6 +24,7 @@ import { useUserStore } from '../users/userStore';
 import { saveSaleDb } from '../../core/database/db';
 import { triggerDrawer } from '../../core/hardware/printer';
 import { getSelectedPrinter } from '../../core/utils/storageMigration';
+import { sanitizeErrorMessage } from '../../core/utils/errorSanitizer';
 import { 
   PaymentModal, 
   ProductSearchModal, 
@@ -140,7 +141,7 @@ export function PosPage() {
       });
       showToast(res?.message || 'Último comprovante reimpresso com sucesso [F9]!', 'success');
     } catch (err: any) {
-      showToast(err?.message || String(err) || 'Erro ao reimprimir último comprovante.', 'danger');
+      showToast(sanitizeErrorMessage(err, 'Erro ao reimprimir último comprovante.'), 'danger');
     }
   };
 
@@ -434,7 +435,7 @@ export function PosPage() {
       await saveSaleDb(payload);
     } catch (err: any) {
       console.error('FALHA CRÍTICA AO COMPLETAR VENDA NO BANCO:', err);
-      const msg = err?.message || String(err) || 'Erro crítico ao salvar a venda no banco de dados.';
+      const msg = sanitizeErrorMessage(err, 'Erro crítico ao salvar a venda no banco de dados.');
       showToast(msg, 'danger');
       isCompletingSaleRef.current = false;
       // IMPORTANTE: Carrinho e estado permanecem intactos para correção ou nova tentativa

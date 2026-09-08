@@ -5,24 +5,23 @@
 ---
 
 ## 1. Dados do Repositório
+* **Produto:** `FinPDV`
+* **Novo Repositório:** `ricobeliko/finpdv` (Remote `origin`)
+* **Repositório Legado:** `ricobeliko/mercado-pos` (Remote `legacy` -> `DISABLED` / Somente Leitura)
+* **Status do Legado:** `LEGACY_TOUCHED: false` (Zero alterações em produção legada)
 * **Versão do Projeto:** `0.2.3`
 * **Release Homologada:** `v0.2.3`
-* **Working Tree:** `HOMOLOGADO E PRONTO PARA RELEASE`
+* **Working Tree:** `HOMOLOGADO E ISOLADO COMO FINPDV`
 * **CI Remoto (GitHub Actions):** `PASS (100% VERDE)`
 
 ---
 
-## 2. CI GitHub Actions: Ativo e Validado
-
-* **Workflow:** `.github/workflows/ci.yml` (disparado em push/PR na branch `main` e `workflow_dispatch`).
-* **Runner:** `windows-latest`
-* **Baseline de Validação:**
-  * `npm ci` — `PASS`
-  * `npx tsc --noEmit` — `PASS (0 erros)`
-  * `npm run build` — `PASS`
-  * `cargo check --manifest-path src-tauri/Cargo.toml` — `PASS`
-  * `cargo test --manifest-path src-tauri/Cargo.toml` — `PASS (35/35 testes)`
-  * `cargo clippy --manifest-path src-tauri/Cargo.toml` — `PASS`
+## 2. Baseline de Validação
+* `npm ci` — `PASS`
+* `npx tsc --noEmit` — `PASS (0 erros)`
+* `npm run build` — `PASS (Bundle de produção OK)`
+* `cargo check --manifest-path src-tauri/Cargo.toml` — `PASS`
+* `cargo test --manifest-path src-tauri/Cargo.toml` — `PASS (35/35 testes)`
 
 ---
 

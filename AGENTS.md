@@ -1,23 +1,23 @@
-# MERCADO-POS CORE RULE
+# FINPDV CORE RULES & GOVERNANCE
 
 Antes de realizar mudanças relevantes, consulte:
-- [docs/PROJECT_CONTEXT.md](file:///c:/Users/richa/OneDrive/Documentos/Projetos/mercado-pos/docs/PROJECT_CONTEXT.md)
-- [docs/CURRENT_STATUS.md](file:///c:/Users/richa/OneDrive/Documentos/Projetos/mercado-pos/docs/CURRENT_STATUS.md)
-
-Quando houver decisão arquitetural ou de design:
-- [docs/ARCHITECTURE.md](file:///c:/Users/richa/OneDrive/Documentos/Projetos/mercado-pos/docs/ARCHITECTURE.md)
-- [docs/DECISIONS.md](file:///c:/Users/richa/OneDrive/Documentos/Projetos/mercado-pos/docs/DECISIONS.md)
-
-Para implementação e validação:
-- [docs/DEVELOPMENT_RULES.md](file:///c:/Users/richa/OneDrive/Documentos/Projetos/mercado-pos/docs/DEVELOPMENT_RULES.md)
-- [docs/TESTING.md](file:///c:/Users/richa/OneDrive/Documentos/Projetos/mercado-pos/docs/TESTING.md)
+- [docs/FINPDV_PRODUCT.md](docs/FINPDV_PRODUCT.md)
+- [docs/FINPDV_ARCHITECTURE.md](docs/FINPDV_ARCHITECTURE.md)
+- [docs/AUTHORIZATION.md](docs/AUTHORIZATION.md)
+- [docs/SUPPORT_MODE.md](docs/SUPPORT_MODE.md)
+- [docs/INSTALLATION_ISOLATION.md](docs/INSTALLATION_ISOLATION.md)
+- [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md)
+- [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)
+- [docs/DECISIONS.md](docs/DECISIONS.md)
+- [docs/DEVELOPMENT_RULES.md](docs/DEVELOPMENT_RULES.md)
+- [docs/TESTING.md](docs/TESTING.md)
 
 ---
 
 ## Regras Essenciais de Conduta:
-1. **Working Tree Local:** O working tree local é a fonte da verdade. Nunca descarte, reverta ou sobrescreva alterações locais sem autorização.
-2. **Git Seguro:** PROIBIDO executar `git reset`, `git clean`, `git restore`, `git commit` ou `git push` sem autorização explícita do usuário.
-3. **Investigar Antes de Alterar:** Entenda o fluxo e diagnostique a causa raiz antes de modificar código. Faça sempre a menor alteração necessária.
-4. **Offline-First:** Todas as rotinas de PDV, caixa e estoque devem funcionar sem internet. O SQLite local é a única fonte da verdade.
-5. **Integridade de Dados:** Valores monetários sempre em centavos inteiros (`cents`). Nunca silencie erros do SQLite com `INSERT OR IGNORE` sem validação.
-6. **Validação Obrigatória:** Execute checagens (`npx tsc --noEmit`, `npm run build`, `cargo check`) e reporte com a tabela `PASS/FAIL/WARNING/NOT RUN`.
+1. **Legado Intocado (`LEGACY_TOUCHED: false`):** NUNCA executar push, commit, tag ou alteração no repositório antigo `mercado-pos`. O remote antigo é estritamente somente leitura. O remote de escrita é exclusivamente `ricobeliko/finpdv`.
+2. **Isolamento de Runtime:** O FinPDV (`com.finpdv.app`, `%APPDATA%\com.finpdv.app`, `finpdv.db`) deve permanecer 100% isolado de qualquer versão legada do aplicativo no mesmo computador.
+3. **Offline-First:** Todas as rotinas de PDV, caixa, suprimento, sangria e estoque devem operar continuamente sem conexão à internet. O SQLite local é a única fonte da verdade operacional.
+4. **Integridade Financeira:** Valores monetários sempre em centavos inteiros (`cents`). Transações de venda e cancelamento devem usar a camada transacional nativa em Rust (`sqlx::Transaction`).
+5. **Zero Backdoors & Hashing Forte:** Proibido o uso de credenciais padrão, senhas mestras ou bypass de autenticação. Todas as senhas e PINs usam Argon2id nativo com salt individual de 16 bytes.
+6. **Validação Obrigatória:** Toda alteração exige execução prévia de `npx tsc --noEmit`, `npm run build`, `cargo check` e `cargo test`, com tabela `PASS/FAIL`.

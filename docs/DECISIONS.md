@@ -182,3 +182,29 @@ Garantir que atualizações de versão e execuções de migration pelo cliente p
 
 ### Motivo:
 Garantir um ciclo de entrega contínua sem atrito para o operador no ponto de venda, prevenindo corrupção de dados e eliminando a necessidade de procedimentos manuais de migração ou reinstalações limpas.
+
+---
+
+## DEC-013 — Criação da Linha Comercial FinPDV com Isolamento Absoluto do Legado
+
+**Status:** Ativa  
+**Data:** 2026-09-07  
+
+### Decisão:
+1. Criação do produto comercial **FinPDV** em novo repositório `ricobeliko/finpdv`, mantendo o repositório legado `ricobeliko/mercado-pos` congelado e intocado (`LEGACY_TOUCHED: false`).
+2. Isolamento de runtime total para permitir coexistência na mesma máquina:
+   - Identificador Tauri: `com.finpdv.app`
+   - Diretório de dados: `%APPDATA%\com.finpdv.app`
+   - Banco de dados: `finpdv.db` (e snapshot `finpdv-pre-migration-vX.db`)
+   - Updater legado desativado e desconectado.
+3. Arquitetura comercial parametrizada:
+   - Entidades `BusinessProfile`, `Store`, `Terminal` e `InstallationInfo`.
+   - Assistente de primeiro uso (Onboarding Wizard) para personalização do cliente sem necessidade de recompilação de código.
+4. Segurança e RBAC:
+   - Derivação e hashing de senhas via Argon2id nativo no backend Rust com salt individual de 16 bytes.
+   - Proibição absoluta de senhas de fábrica ou backdoors.
+   - Auditoria sistemática em `audit_logs`.
+
+### Motivo:
+Transformar uma aplicação de cliente único em uma plataforma de produto comercial escalável, segura e reutilizável, preservando integralmente a estabilidade dos clientes já em produção no legado.
+

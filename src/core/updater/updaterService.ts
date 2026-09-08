@@ -10,9 +10,22 @@ export interface UpdateStatus {
   totalBytes?: number;
 }
 
+// Seguranca: Updater FinPDV desabilitado ate provisionamento de par Minisign exclusivo para ricobeliko/finpdv
+// Jamais faz fallback para ricobeliko/mercado-pos
+export const FINPDV_UPDATER_ACTIVE = false;
+
 let pendingUpdate: Update | null = null;
 
 export async function checkForAppUpdates(onProgress?: (status: UpdateStatus) => void): Promise<UpdateStatus> {
+  if (!FINPDV_UPDATER_ACTIVE) {
+    const status: UpdateStatus = {
+      state: 'UP_TO_DATE',
+      body: 'FinPDV v0.2.3 — Canal de atualização exclusivo FinPDV aguardando provisionamento de chave Minisign.'
+    };
+    if (onProgress) onProgress(status);
+    return status;
+  }
+
   try {
     if (onProgress) onProgress({ state: 'CHECKING' });
 

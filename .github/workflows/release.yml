@@ -1,4 +1,4 @@
-name: Release Mercearia Uber
+name: Release FinPDV
 
 on:
   push:
@@ -75,7 +75,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Mercearia Uber ${{ github.ref_name }}'
+          releaseName: 'FinPDV ${{ github.ref_name }}'
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false

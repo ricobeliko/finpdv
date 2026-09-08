@@ -431,9 +431,9 @@ pub async fn cancel_sale_transaction(
 ) -> Result<(), String> {
     let instances = db_instances.0.read().await;
     let db_pool = instances
-        .get("sqlite:mercado.db")
+        .get("sqlite:finpdv.db")
         .or_else(|| instances.values().next())
-        .ok_or_else(|| "Banco de dados 'sqlite:mercado.db' não carregado".to_string())?;
+        .ok_or_else(|| "Banco de dados 'sqlite:finpdv.db' não carregado".to_string())?;
 
     match db_pool {
         tauri_plugin_sql::DbPool::Sqlite(pool) => {

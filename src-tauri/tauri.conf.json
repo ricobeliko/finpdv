@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Mercearia Uber",
+  "productName": "FinPDV",
   "version": "0.2.3",
-  "identifier": "com.merceariauber.pos",
+  "identifier": "com.finpdv.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Mercearia Uber",
+        "title": "FinPDV",
         "width": 1280,
         "height": 800,
         "minWidth": 1024,
@@ -29,15 +29,15 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlGMzQwRDE2NDlFMDMzOUMKUldTY00rQkpGZzAwbjBPRElEZk9BNCtMTEJ2R3B2N1V0NVNkR0UveGIwc1JkdEJJazUwRnM3SGcK",
+      "pubkey": "",
       "endpoints": [
-        "https://github.com/ricobeliko/mercado-pos/releases/latest/download/latest.json"
+        "https://github.com/ricobeliko/finpdv/releases/latest/download/latest.json"
       ]
     }
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",

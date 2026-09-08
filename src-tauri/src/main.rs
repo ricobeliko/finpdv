@@ -2,5 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    mercado_pos_lib::run()
+    finpdv_lib::run()
 }
+

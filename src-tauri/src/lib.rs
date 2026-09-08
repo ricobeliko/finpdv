@@ -164,18 +164,18 @@ fn open_cash_drawer(printer_name: String) -> Result<(), String> {
     print_raw_escpos(printer_name, drawer_pulse)
 }
 
-/// Cria um snapshot consistente e desfragmentado de mercado.db antes de migrations estruturais.
+/// Cria um snapshot consistente e desfragmentado de finpdv.db antes de migrations estruturais.
 /// Idempotente por versão: se o backup da versão atual já existir, não sobrescreve nem duplica.
 pub fn create_pre_migration_backup_in_dir(
     app_data_dir: &std::path::Path,
     version: &str,
 ) -> Result<Option<std::path::PathBuf>, String> {
-    let db_path = app_data_dir.join("mercado.db");
+    let db_path = app_data_dir.join("finpdv.db");
     if !db_path.exists() {
         return Ok(None);
     }
 
-    let backup_filename = format!("mercado-pre-migration-v{}.db", version);
+    let backup_filename = format!("finpdv-pre-migration-v{}.db", version);
     let backup_path = app_data_dir.join(&backup_filename);
 
     if backup_path.exists() {
@@ -210,6 +210,34 @@ pub fn create_pre_migration_backup_in_dir(
     })
 }
 
+// 4. AUTENTICAÇÃO E RBAC COM ARGON2ID NATIVO
+#[tauri::command]
+fn hash_credential(credential: String) -> Result<String, String> {
+    use argon2::{
+        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+        Argon2,
+    };
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(credential.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|e| format!("Erro ao gerar hash Argon2: {}", e))
+}
+
+#[tauri::command]
+fn verify_credential(credential: String, hash: String) -> Result<bool, String> {
+    use argon2::{
+        password_hash::{PasswordHash, PasswordVerifier},
+        Argon2,
+    };
+    let parsed_hash = match PasswordHash::new(&hash) {
+        Ok(h) => h,
+        Err(_) => return Ok(false),
+    };
+    Ok(Argon2::default().verify_password(credential.as_bytes(), &parsed_hash).is_ok())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -237,7 +265,9 @@ pub fn run() {
             open_cash_drawer,
             sale_transaction::save_sale_transaction,
             sale_cancellation::cancel_sale_transaction,
-            cosmos_lookup::lookup_cosmos_gtin
+            cosmos_lookup::lookup_cosmos_gtin,
+            hash_credential,
+            verify_credential
         ])
         .run(tauri::generate_context!())
         .expect("erro ao executar aplicação tauri");
@@ -250,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_pre_migration_backup_nonexistent_db_returns_none() {
-        let temp_dir = std::env::temp_dir().join(format!("mercado_test_nobackup_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!("finpdv_test_nobackup_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         fs::create_dir_all(&temp_dir).unwrap();
 
         let res = create_pre_migration_backup_in_dir(&temp_dir, "0.1.16");
@@ -262,10 +292,10 @@ mod tests {
 
     #[test]
     fn test_pre_migration_backup_creates_consistent_backup_and_is_idempotent() {
-        let temp_dir = std::env::temp_dir().join(format!("mercado_test_backup_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!("finpdv_test_backup_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         fs::create_dir_all(&temp_dir).unwrap();
 
-        let db_path = temp_dir.join("mercado.db");
+        let db_path = temp_dir.join("finpdv.db");
         let db_str = db_path.to_string_lossy().replace('\\', "/");
         let db_url = format!("sqlite://{}", db_str);
 
@@ -294,7 +324,7 @@ mod tests {
         assert!(res1.is_ok());
         let backup_path = res1.unwrap().expect("Backup path must be Some");
         assert!(backup_path.exists());
-        assert_eq!(backup_path.file_name().unwrap(), "mercado-pre-migration-v0.1.16.db");
+        assert_eq!(backup_path.file_name().unwrap(), "finpdv-pre-migration-v0.1.16.db");
 
         // Valida integridade e dados do backup criado
         tauri::async_runtime::block_on(async {

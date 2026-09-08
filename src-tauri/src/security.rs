@@ -521,4 +521,97 @@ mod tests {
             assert!(guard.is_none(), "Nova inicialização nunca deve restaurar sessão privilegiada automaticamente");
         });
     }
+
+    #[test]
+    fn test_login_failure_does_not_create_session() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_mock_auth_db().await;
+            let session_state = SessionState::new();
+
+            let pass_hash = hash_credential_argon2("correta123").unwrap();
+            sqlx::query(
+                "INSERT INTO users (id, username, name, password_hash, role, is_active, created_at, updated_at)
+                 VALUES ('u-1', 'caixa1', 'Caixa 1', ?, 'OPERATOR', 1, '2026-01-01', '2026-01-01')"
+            )
+            .bind(&pass_hash)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            // Tentativa com senha errada
+            let fail_res = authenticate_user(&session_state, &pool, "caixa1", "senhaerrada").await;
+            assert!(fail_res.is_err());
+            assert_eq!(fail_res.unwrap_err(), "Credenciais inválidas.");
+
+            // Confirma que nenhuma sessão foi criada
+            let guard = session_state.0.read().await;
+            assert!(guard.is_none());
+
+            // Tentativa com usuário inexistente
+            let fail_user = authenticate_user(&session_state, &pool, "fantasma", "qualquer").await;
+            assert!(fail_user.is_err());
+            assert_eq!(fail_user.unwrap_err(), "Credenciais inválidas.");
+            let guard2 = session_state.0.read().await;
+            assert!(guard2.is_none());
+        });
+    }
+
+    #[test]
+    fn test_operator_switch_replaces_session_and_permissions_atomically() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_mock_auth_db().await;
+            let session_state = SessionState::new();
+
+            let admin_hash = hash_credential_argon2("admin123").unwrap();
+            let op_hash = hash_credential_argon2("operador123").unwrap();
+
+            sqlx::query(
+                "INSERT INTO users (id, username, name, password_hash, role, is_active, created_at, updated_at)
+                 VALUES 
+                 ('u-admin', 'admin', 'Administrador', ?, 'CLIENT_ADMIN', 1, '2026-01-01', '2026-01-01'),
+                 ('u-op', 'operador', 'Operador Caixa', ?, 'OPERATOR', 1, '2026-01-01', '2026-01-01')"
+            )
+            .bind(&admin_hash)
+            .bind(&op_hash)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            // 1. ADMIN faz login
+            authenticate_user(&session_state, &pool, "admin", "admin123").await.unwrap();
+            assert!(require_permission(&session_state, &pool, "users.manage").await.is_ok());
+            assert!(require_permission(&session_state, &pool, "backup.create").await.is_ok());
+
+            // 2. Troca de operador para OPERATOR
+            let op_sess = authenticate_user(&session_state, &pool, "operador", "operador123").await.unwrap();
+            assert_eq!(op_sess.role, "OPERATOR");
+            assert_eq!(op_sess.username, "operador");
+
+            // Permissões privilegiadas são imediatamente revogadas
+            let admin_perm = require_permission(&session_state, &pool, "users.manage").await;
+            assert!(admin_perm.is_err());
+            assert!(admin_perm.unwrap_err().contains("Acesso negado: a role 'OPERATOR'"));
+
+            let backup_perm = require_permission(&session_state, &pool, "backup.create").await;
+            assert!(backup_perm.is_err());
+
+            // Permissão de operador continua válida
+            assert!(require_permission(&session_state, &pool, "sale.create").await.is_ok());
+
+            // 3. Tentativa de elevação para CLIENT_ADMIN com senha incorreta FALHA e NÃO eleva permissões
+            let false_elevation = authenticate_user(&session_state, &pool, "admin", "senha-falsa").await;
+            assert!(false_elevation.is_err());
+
+            // A sessão anterior não foi adulterada para admin
+            let current_guard = session_state.0.read().await;
+            assert_eq!(current_guard.as_ref().unwrap().username, "operador");
+            drop(current_guard);
+
+            // 4. Logout limpa a sessão e chamadas sensíveis falham
+            clear_session(&session_state).await;
+            let no_sess_err = require_permission(&session_state, &pool, "sale.create").await;
+            assert!(no_sess_err.is_err());
+            assert!(no_sess_err.unwrap_err().contains("Não autenticado"));
+        });
+    }
 }

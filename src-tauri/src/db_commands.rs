@@ -1287,46 +1287,117 @@ pub async fn restore_database_dump_logic(
     .await
     .unwrap_or(None);
 
-    // Extrair identificadores de empresa do backup (origin ou data.businessProfile)
-    let mut backup_cnpj = String::new();
-    let mut backup_business_id = String::new();
+    // Extrair identificadores de empresa declarados no envelope (origin)
+    let origin_cnpj = dump
+        .get("origin")
+        .and_then(|o| o.get("businessCnpj"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
 
-    if let Some(origin) = dump.get("origin") {
-        if let Some(cnpj) = origin.get("businessCnpj").and_then(|v| v.as_str()) {
-            backup_cnpj = cnpj.trim().to_string();
-        }
-        if let Some(bid) = origin.get("businessId").and_then(|v| v.as_str()) {
-            backup_business_id = bid.trim().to_string();
-        }
-    }
+    let origin_business_id = dump
+        .get("origin")
+        .and_then(|o| o.get("businessId"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
 
-    if backup_cnpj.is_empty() {
-        if let Some(bp_arr) = data.get("businessProfile").and_then(|v| v.as_array()) {
-            if let Some(first_bp) = bp_arr.first() {
-                if let Some(cnpj) = first_bp.get("cnpj").and_then(|v| v.as_str()) {
-                    backup_cnpj = cnpj.trim().to_string();
-                }
-                if backup_business_id.is_empty() {
-                    if let Some(id) = first_bp.get("id").and_then(|v| v.as_str()) {
-                        backup_business_id = id.trim().to_string();
-                    }
-                }
+    // Extrair identificadores reais presentes nos dados internos do backup (data.businessProfile ou data.business_profile)
+    let mut internal_cnpj = String::new();
+    let mut internal_business_id = String::new();
+
+    let bp_items = data
+        .get("businessProfile")
+        .or_else(|| data.get("business_profile"))
+        .and_then(|v| v.as_array());
+
+    if let Some(bp_arr) = bp_items {
+        if let Some(first_bp) = bp_arr.first() {
+            if let Some(cnpj) = first_bp.get("cnpj").and_then(|v| v.as_str()) {
+                internal_cnpj = cnpj.trim().to_string();
+            }
+            if let Some(id) = first_bp.get("id").and_then(|v| v.as_str()) {
+                internal_business_id = id.trim().to_string();
             }
         }
     }
 
-    // Se a máquina atual já possui empresa configurada:
+    // 3.1. Consistência Interna Anti-Adulteração (Envelope origin vs Payload interno):
+    // Se o backup declara CNPJ no envelope e também possui dados internos de empresa,
+    // eles NÃO podem divergir. Adulterar apenas o cabeçalho externo do JSON é bloqueado!
+    let clean_origin_cnpj = clean_document_digits(&origin_cnpj);
+    let clean_internal_cnpj = clean_document_digits(&internal_cnpj);
+
+    if !clean_origin_cnpj.is_empty() && !clean_internal_cnpj.is_empty() && clean_origin_cnpj != clean_internal_cnpj {
+        let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let err_msg = format!(
+            "RESTORE BLOQUEADO: Adulteração detectada no arquivo de backup. O CNPJ declarado no cabeçalho ('{}') não corresponde aos dados empresariais internos ('{}'). Operação cancelada para sua segurança.",
+            origin_cnpj, internal_cnpj
+        );
+        let _ = sqlx::query(
+            "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+             VALUES (?, ?, ?, ?, 'backup.restore_failed', 'backup', NULL, '{\"reason\":\"TAMPERED_METADATA_CNPJ\"}', ?)"
+        )
+        .bind(&audit_fail_id)
+        .bind(user_id)
+        .bind(username)
+        .bind(role)
+        .bind(&now_date_iso)
+        .execute(pool)
+        .await;
+
+        return Err(err_msg);
+    }
+
+    if !origin_business_id.is_empty() && !internal_business_id.is_empty()
+        && origin_business_id != "unknown-business" && internal_business_id != "unknown-business"
+        && origin_business_id != internal_business_id
+    {
+        let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let err_msg = format!(
+            "RESTORE BLOQUEADO: Adulteração detectada no arquivo de backup. O ID de empresa declarado no cabeçalho ('{}') diverge do registro empresarial interno ('{}').",
+            origin_business_id, internal_business_id
+        );
+        let _ = sqlx::query(
+            "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+             VALUES (?, ?, ?, ?, 'backup.restore_failed', 'backup', NULL, '{\"reason\":\"TAMPERED_METADATA_BUSINESS_ID\"}', ?)"
+        )
+        .bind(&audit_fail_id)
+        .bind(user_id)
+        .bind(username)
+        .bind(role)
+        .bind(&now_date_iso)
+        .execute(pool)
+        .await;
+
+        return Err(err_msg);
+    }
+
+    // Identidade Efetiva do Backup:
+    let effective_cnpj = if !clean_internal_cnpj.is_empty() {
+        &internal_cnpj
+    } else {
+        &origin_cnpj
+    };
+    let clean_effective_cnpj = clean_document_digits(effective_cnpj);
+
+    let effective_business_id = if !internal_business_id.is_empty() && internal_business_id != "unknown-business" {
+        &internal_business_id
+    } else {
+        &origin_business_id
+    };
+
+    // 3.2. Validação contra a empresa cadastrada no terminal atual (se já existir no banco):
     if let Some((curr_id, curr_cnpj_opt, _)) = current_business {
         let curr_cnpj = curr_cnpj_opt.unwrap_or_default().trim().to_string();
         let clean_curr = clean_document_digits(&curr_cnpj);
-        let clean_bkp = clean_document_digits(&backup_cnpj);
 
         // Se ambos têm CNPJ e diferem -> BLOQUEIO
-        if !clean_curr.is_empty() && !clean_bkp.is_empty() && clean_curr != clean_bkp {
+        if !clean_curr.is_empty() && !clean_effective_cnpj.is_empty() && clean_curr != clean_effective_cnpj {
             let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
             let err_msg = format!(
                 "RESTORE BLOQUEADO: O arquivo de backup pertence a outra empresa (Backup CNPJ: {}, Atual: {}). A restauração entre empresas distintas é proibida por segurança.",
-                backup_cnpj, curr_cnpj
+                effective_cnpj, curr_cnpj
             );
             let _ = sqlx::query(
                 "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
@@ -1344,14 +1415,14 @@ pub async fn restore_database_dump_logic(
         }
 
         // Se ambos têm business_id e diferem (e nenhum é desconhecido) -> BLOQUEIO
-        if !curr_id.is_empty() && !backup_business_id.is_empty()
-            && curr_id != "unknown-business" && backup_business_id != "unknown-business"
-            && curr_id != backup_business_id
+        if !curr_id.is_empty() && !effective_business_id.is_empty()
+            && curr_id != "unknown-business" && *effective_business_id != "unknown-business"
+            && curr_id != *effective_business_id
         {
             let audit_fail_id = format!("aud-rst-fail-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
             let err_msg = format!(
                 "RESTORE BLOQUEADO: O identificador da empresa no backup ('{}') não corresponde à empresa cadastrada nesta máquina ('{}').",
-                backup_business_id, curr_id
+                effective_business_id, curr_id
             );
             let _ = sqlx::query(
                 "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
@@ -1820,7 +1891,8 @@ pub async fn restore_database_dump_logic(
     }
 
     // Business Profile (se presente no backup e máquina limpa ou mesma empresa)
-    if let Some(bp_arr) = data.get("businessProfile").and_then(|v| v.as_array()) {
+    let bp_items_to_restore = data.get("businessProfile").or_else(|| data.get("business_profile")).and_then(|v| v.as_array());
+    if let Some(bp_arr) = bp_items_to_restore {
         if let Some(bp) = bp_arr.first() {
             let id = bp.get("id").and_then(|v| v.as_str()).unwrap_or("");
             let trade_name = bp.get("trade_name").and_then(|v| v.as_str()).unwrap_or("");
@@ -2646,6 +2718,126 @@ mod restore_tests {
                 .await
                 .unwrap();
             assert_eq!(cat_orig.0, "Original", "Dado original pré-restore deve ser 100% preservado");
+        });
+    }
+
+    #[test]
+    fn test_restore_tampered_metadata_cnpj_fails() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_empty_test_db().await;
+
+            // Cadastra empresa atual: Empresa A com CNPJ 11.111.111/0001-11
+            sqlx::query(
+                "INSERT INTO business_profile (id, trade_name, corporate_name, cnpj, created_at, updated_at)
+                 VALUES ('biz-a', 'Empresa A', 'Empresa A LTDA', '11.111.111/0001-11', '2026-01-01', '2026-01-01')"
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            // Dump original da Empresa B, mas com cabeçalho adulterado para fingir ser a Empresa A!
+            let tampered_dump = serde_json::json!({
+                "version": "1.0.0",
+                "backupFormatVersion": "2.0",
+                "origin": {
+                    "businessId": "biz-b",
+                    "businessCnpj": "11.111.111/0001-11", // <-- Adulterado para bater com a Empresa A
+                    "businessTradeName": "Empresa A Falsa"
+                },
+                "data": {
+                    "businessProfile": [{
+                        "id": "biz-b",
+                        "trade_name": "Empresa B Real",
+                        "corporate_name": "Empresa B LTDA",
+                        "cnpj": "22.222.222/0001-22" // <-- CNPJ interno real da Empresa B
+                    }],
+                    "categories": [{"id": "cat-tampered", "name": "Categoria Intrusora"}],
+                    "products": []
+                }
+            });
+
+            let res = restore_database_dump_logic(&pool, &tampered_dump.to_string(), Some("u1"), Some("admin"), Some("CLIENT_ADMIN")).await;
+            assert!(res.is_err(), "Restore de backup com metadata CNPJ adulterado DEVE FALHAR!");
+            let err_msg = res.unwrap_err();
+            assert!(
+                err_msg.contains("Adulteração detectada") || err_msg.contains("TAMPERED_METADATA_CNPJ"),
+                "Mensagem deve apontar adulteração de metadata: {}",
+                err_msg
+            );
+
+            // Confirma que os dados intrusos NÃO foram persistidos
+            let cat: Option<(String,)> = sqlx::query_as("SELECT id FROM categories WHERE id = 'cat-tampered'")
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+            assert!(cat.is_none(), "Nenhum dado do backup adulterado deve ser inserido");
+        });
+    }
+
+    #[test]
+    fn test_restore_tampered_metadata_business_id_fails() {
+        tauri::async_runtime::block_on(async {
+            let pool = create_empty_test_db().await;
+
+            let tampered_id_dump = serde_json::json!({
+                "version": "1.0.0",
+                "backupFormatVersion": "2.0",
+                "origin": {
+                    "businessId": "biz-fake-id", // <-- Diverge do ID interno
+                    "businessCnpj": "33.333.333/0001-33",
+                    "businessTradeName": "Loja Teste"
+                },
+                "data": {
+                    "businessProfile": [{
+                        "id": "biz-real-id",
+                        "trade_name": "Loja Teste",
+                        "corporate_name": "Loja Teste LTDA",
+                        "cnpj": "33.333.333/0001-33"
+                    }],
+                    "categories": [],
+                    "products": []
+                }
+            });
+
+            let res = restore_database_dump_logic(&pool, &tampered_id_dump.to_string(), Some("u1"), Some("admin"), Some("CLIENT_ADMIN")).await;
+            assert!(res.is_err(), "Restore com businessId adulterado DEVE FALHAR!");
+            let err_msg = res.unwrap_err();
+            assert!(
+                err_msg.contains("Adulteração detectada") || err_msg.contains("TAMPERED_METADATA_BUSINESS_ID"),
+                "Mensagem deve apontar adulteração de ID empresarial: {}",
+                err_msg
+            );
+        });
+    }
+
+    #[test]
+    fn test_restore_clean_pc_tampered_metadata_fails() {
+        tauri::async_runtime::block_on(async {
+            // Instalação limpa em PC novo
+            let pool = create_empty_test_db().await;
+
+            let tampered_clean_dump = serde_json::json!({
+                "version": "1.0.0",
+                "backupFormatVersion": "2.0",
+                "origin": {
+                    "businessId": "biz-x",
+                    "businessCnpj": "44.444.444/0001-44",
+                    "businessTradeName": "Empresa X"
+                },
+                "data": {
+                    "businessProfile": [{
+                        "id": "biz-x",
+                        "trade_name": "Empresa Y",
+                        "corporate_name": "Empresa Y LTDA",
+                        "cnpj": "55.555.555/0001-55" // Diverge do origin!
+                    }],
+                    "categories": [],
+                    "products": []
+                }
+            });
+
+            let res = restore_database_dump_logic(&pool, &tampered_clean_dump.to_string(), Some("u1"), Some("admin"), Some("CLIENT_ADMIN")).await;
+            assert!(res.is_err(), "Mesmo em PC limpo, inconsistência entre cabeçalho e dados internos deve falhar");
         });
     }
 }

@@ -3,6 +3,7 @@ import { X, Plus, Trash2, Tag, Barcode, Sparkles, Loader2, CheckCircle2 } from '
 import { Category, Product, TierPrice, UnitMeasure } from '../types';
 import { lookupBarcodeInfo } from '../../../core/services/barcodeLookupService';
 import { useProductStore, generateNextInternalCode } from '../productStore';
+import { getLastCategoryId, setLastCategoryId } from '../../../core/utils/storageMigration';
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -18,7 +19,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
   // Determina categoria padrão inicial (Memória do último uso ou 'Mercearia & Grãos')
   const getInitialCategoryId = () => {
     if (initialData?.categoryId) return initialData.categoryId;
-    const savedLastCat = localStorage.getItem('finpdv_last_category_id') || localStorage.getItem('mercado_pos_last_category_id');
+    const savedLastCat = getLastCategoryId();
     if (savedLastCat && categories.some(c => c.id === savedLastCat)) {
       return savedLastCat;
     }
@@ -176,7 +177,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
           });
           if (matchedCat) {
             setCategoryId(matchedCat.id);
-            localStorage.setItem('finpdv_last_category_id', matchedCat.id);
+            setLastCategoryId(matchedCat.id);
           }
         }
 
@@ -250,7 +251,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
   const handleCategoryChange = (newCatId: string) => {
     setCategoryId(newCatId);
     isCategoryManuallyEditedRef.current = true;
-    localStorage.setItem('finpdv_last_category_id', newCatId);
+    setLastCategoryId(newCatId);
   };
 
   const handleAddTier = () => {
@@ -323,7 +324,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
 
     // Salva a última categoria utilizada na memória
     if (categoryId) {
-      localStorage.setItem('finpdv_last_category_id', categoryId);
+      setLastCategoryId(categoryId);
     }
 
     // ATIVAÇÃO DA TRAVA SÍNCRONA E VISUAL

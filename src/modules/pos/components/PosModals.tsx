@@ -22,6 +22,7 @@ import { CartItem, CompletedSale, Customer, PaymentEntry, PaymentMethod, Suspend
 import { printReceipt } from '../../../core/hardware/printer';
 import { useCashStore } from '../../cash/cashStore';
 import { useFinPdvStore } from '../../../core/finpdv/finpdvStore';
+import { getSelectedPrinter } from '../../../core/utils/storageMigration';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -748,7 +749,7 @@ export function ReceiptModal({
 
   const handleDirectPrint = async () => {
     if (isPrinting) return;
-    const savedPrinter = localStorage.getItem('finpdv_selected_printer') || localStorage.getItem('mercado_selected_printer') || '';
+    const savedPrinter = getSelectedPrinter();
     if (!savedPrinter) {
       alert('Selecione e salve uma impressora na aba "Configurações & Backup > Periféricos" primeiro.');
       return;

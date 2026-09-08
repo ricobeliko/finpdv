@@ -21,6 +21,7 @@ import { useProductStore } from '../products/productStore';
 import { useUserStore } from '../users/userStore';
 import { saveSaleDb } from '../../core/database/db';
 import { triggerDrawer } from '../../core/hardware/printer';
+import { getSelectedPrinter } from '../../core/utils/storageMigration';
 import { 
   PaymentModal, 
   ProductSearchModal, 
@@ -115,7 +116,7 @@ export function PosPage() {
   };
 
   const handleOpenDrawer = () => {
-    const savedPrinter = localStorage.getItem('mercado_selected_printer') || '';
+    const savedPrinter = getSelectedPrinter();
     if (savedPrinter) {
       triggerDrawer(savedPrinter);
       showToast('Gaveta de dinheiro acionada [F8]!', 'success');
@@ -437,7 +438,7 @@ export function PosPage() {
       useCustomerStore.getState().loadFromDb().catch(e => console.warn('Aviso: falha ao recarregar clientes pós-venda:', e));
 
       // 3. Efeitos de hardware pós-commit (falha na gaveta não invalida a venda)
-      const savedPrinter = localStorage.getItem('mercado_selected_printer') || '';
+      const savedPrinter = getSelectedPrinter();
       if (savedPrinter) {
         try {
           triggerDrawer(savedPrinter);

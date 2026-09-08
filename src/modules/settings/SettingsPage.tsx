@@ -29,6 +29,7 @@ import {
   Barcode,
   Globe
 } from 'lucide-react';
+import { getSelectedPrinter, setSelectedPrinter } from '../../core/utils/storageMigration';
 import { useSettingsStore } from './settingsStore';
 import { BackupRecord } from './types';
 import { RestoreConfirmModal } from './components/RestoreConfirmModal';
@@ -105,7 +106,7 @@ export function SettingsPage() {
     
     getInstalledPrinters().then(printers => {
       setAvailablePrinters(printers);
-      const savedPrinter = localStorage.getItem('mercado_selected_printer');
+      const savedPrinter = getSelectedPrinter();
       if (savedPrinter && printers.includes(savedPrinter)) {
         setFormData(prev => ({ ...prev, printerName: savedPrinter }));
       } else if (printers.length > 0 && !formData.printerName) {
@@ -144,7 +145,7 @@ export function SettingsPage() {
   const handleSaveHardwareSettings = () => {
     updateSettings(formData);
     if (formData.printerName) {
-      localStorage.setItem('mercado_selected_printer', formData.printerName);
+      setSelectedPrinter(formData.printerName);
     }
     showToast('Configurações de periféricos salvas com sucesso!');
   };

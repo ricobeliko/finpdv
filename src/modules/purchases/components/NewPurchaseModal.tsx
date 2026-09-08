@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Plus, Trash2, PackagePlus, DollarSign } from 'lucide-react';
 import { Product } from '../../products/types';
 import { PurchaseItem, Supplier } from '../types';
+import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -39,6 +40,12 @@ export function NewPurchaseModal({
   onClose,
   onConfirmPurchase
 }: NewPurchaseModalProps) {
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: onClose,
+    autoFocus: true,
+  });
+
   if (!isOpen) return null;
 
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id || '');
@@ -112,7 +119,7 @@ export function NewPurchaseModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
         <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h3 className="font-bold text-textMain text-base flex items-center space-x-2">

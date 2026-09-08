@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import { useFinPdvStore } from '../../core/finpdv/finpdvStore';
 import { Building2, Store as StoreIcon, Monitor, Printer, ShieldCheck, CheckCircle2, ArrowRight, ArrowLeft } from 'lucide-react';
+import { useFocusTrap } from '../../shared/hooks/useFocusTrap';
 
 export const InitialSetupWizardModal: React.FC = () => {
   const { completeInitialSetup } = useFinPdvStore();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    autoFocus: true,
+  });
 
   // Form state
   const [tradeName, setTradeName] = useState('');
@@ -117,7 +123,7 @@ export const InitialSetupWizardModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in fade-in zoom-in-95 duration-200">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in fade-in zoom-in-95 duration-200">
         {/* Cabeçalho */}
         <div className="bg-gradient-to-r from-blue-700 to-indigo-800 p-6 border-b border-indigo-500/30">
           <div className="flex items-center justify-between">

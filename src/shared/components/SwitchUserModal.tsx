@@ -9,6 +9,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { useUserStore } from '../../modules/users/userStore';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface SwitchUserDecisionModalProps {
   isOpen: boolean;
@@ -25,11 +26,17 @@ export function SwitchUserDecisionModal({
   onCloseCash,
   onCancel,
 }: SwitchUserDecisionModalProps) {
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: onCancel,
+    autoFocus: true,
+  });
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
         {/* CABEÇALHO */}
         <div className="bg-amber-500 text-white px-6 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
@@ -111,6 +118,11 @@ interface UserSelectModalProps {
 }
 
 export function UserSelectModal({ isOpen, onSelectUser, onClose }: UserSelectModalProps) {
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: onClose,
+    autoFocus: true,
+  });
   const { users, currentUser } = useUserStore();
   const [selectedUser, setSelectedUser] = React.useState<any | null>(null);
   const [credential, setCredential] = React.useState('');
@@ -151,7 +163,7 @@ export function UserSelectModal({ isOpen, onSelectUser, onClose }: UserSelectMod
 
   return (
     <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
         <div className="bg-primary text-white px-6 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <User className="w-5 h-5 text-highlight" />

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, ArrowRight, ArrowLeftRight } from 'lucide-react';
 import { MovementType, Product } from '../types';
+import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
 
 interface StockAdjustmentModalProps {
   isOpen: boolean;
@@ -15,6 +16,12 @@ interface StockAdjustmentModalProps {
 }
 
 export function StockAdjustmentModal({ isOpen, product, onClose, onConfirm }: StockAdjustmentModalProps) {
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: onClose,
+    autoFocus: true,
+  });
+
   if (!isOpen) return null;
 
   const [type, setType] = useState<MovementType>('ADJUST_IN');
@@ -54,7 +61,7 @@ export function StockAdjustmentModal({ isOpen, product, onClose, onConfirm }: St
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h3 className="font-bold text-textMain text-base flex items-center space-x-2">

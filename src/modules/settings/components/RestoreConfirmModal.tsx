@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, AlertTriangle, Database, ShieldAlert, Check } from 'lucide-react';
 import { BackupRecord } from '../types';
+import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
 
 interface RestoreConfirmModalProps {
   isOpen: boolean;
@@ -20,12 +21,15 @@ export function RestoreConfirmModal({
   if (!isOpen || !backup) return null;
 
   const [confirmationWord, setConfirmationWord] = useState('');
-
   const isConfirmed = confirmationWord.trim().toUpperCase() === 'RESTAURAR';
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: !isRestoring ? onClose : undefined,
+  });
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-red-200 overflow-hidden">
+      <div ref={trapRef} className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-red-200 overflow-hidden">
         <div className="bg-red-50 px-6 py-4 border-b border-red-200 flex items-center justify-between">
           <h3 className="font-bold text-danger text-base flex items-center space-x-2">
             <ShieldAlert className="w-5 h-5 text-danger" />

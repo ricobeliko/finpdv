@@ -4,6 +4,7 @@ import { Category, Product, TierPrice, UnitMeasure } from '../types';
 import { lookupBarcodeInfo } from '../../../core/services/barcodeLookupService';
 import { useProductStore, generateNextInternalCode } from '../productStore';
 import { getLastCategoryId, setLastCategoryId } from '../../../core/utils/storageMigration';
+import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -14,6 +15,12 @@ interface ProductFormModalProps {
 }
 
 export function ProductFormModal({ isOpen, onClose, onSave, categories, initialData }: ProductFormModalProps) {
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: onClose,
+    autoFocus: false,
+  });
+
   const products = useProductStore(state => state.products);
 
   // Determina categoria padrão inicial (Memória do último uso ou 'Mercearia & Grãos')
@@ -355,7 +362,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
-      <div className="bg-surface w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-6">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-6">
         {/* CABEÇALHO DA MODAL */}
         <div className="bg-slate-50 px-6 py-3.5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">

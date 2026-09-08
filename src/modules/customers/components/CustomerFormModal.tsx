@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, User, Phone, MapPin, FileText } from 'lucide-react';
 import { Customer } from '../types';
+import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
 
 interface CustomerFormModalProps {
   isOpen: boolean;
@@ -10,6 +11,12 @@ interface CustomerFormModalProps {
 }
 
 export function CustomerFormModal({ isOpen, onClose, onSave, initialData }: CustomerFormModalProps) {
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: onClose,
+    autoFocus: true,
+  });
+
   if (!isOpen) return null;
 
   const [name, setName] = useState(initialData?.name || '');
@@ -38,7 +45,7 @@ export function CustomerFormModal({ isOpen, onClose, onSave, initialData }: Cust
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <h3 className="font-bold text-textMain text-base flex items-center space-x-2">
             <User className="w-5 h-5 text-primary" />

@@ -23,6 +23,7 @@ import { printReceipt } from '../../../core/hardware/printer';
 import { useCashStore } from '../../cash/cashStore';
 import { useFinPdvStore } from '../../../core/finpdv/finpdvStore';
 import { getSelectedPrinter } from '../../../core/utils/storageMigration';
+import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -54,6 +55,11 @@ export function ItemQuantityModal({
 }: ItemQuantityModalProps) {
   const [qtyInput, setQtyInput] = useState(defaultQuantity.toString());
   const inputRef = useRef<HTMLInputElement>(null);
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    onEscape: onClose,
+    autoFocus: false,
+  });
 
   useEffect(() => {
     setTimeout(() => {
@@ -94,7 +100,7 @@ export function ItemQuantityModal({
 
   return (
     <div onKeyDown={handleKeyDown} className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
         <div className="bg-primary text-white px-6 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <Layers className="w-5 h-5 text-highlight" />
@@ -181,6 +187,11 @@ export function PaymentModal({
   const [payments, setPayments] = useState<PaymentEntry[]>([]);
   const isFinalizingRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    onEscape: onClose,
+    autoFocus: false,
+  });
 
   const totalPaidCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
   const remainingCents = Math.max(0, totalCents - totalPaidCents);
@@ -273,7 +284,7 @@ export function PaymentModal({
 
   return (
     <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
         <div className="bg-primary text-white px-7 py-4 flex items-center justify-between">
           <div>
             <h3 className="font-bold text-lg">Recebimento da Venda</h3>
@@ -415,6 +426,11 @@ export function ProductSearchModal({
   onClose: () => void;
 }) {
   const [term, setTerm] = useState('');
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    onEscape: onClose,
+    autoFocus: false,
+  });
   const filtered = catalog.filter(p =>
     p.name.toLowerCase().includes(term.toLowerCase()) ||
     p.internalCode.toLowerCase().includes(term.toLowerCase()) ||
@@ -432,7 +448,7 @@ export function ProductSearchModal({
       }}
       className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
     >
-      <div className="bg-surface w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[80vh]">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[80vh]">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <span className="font-bold text-xs uppercase tracking-wider text-textMain flex items-center space-x-2">
             <Search className="w-4 h-4 text-primary" />
@@ -503,6 +519,11 @@ export function CustomerModal({
   onClose: () => void;
 }) {
   const [term, setTerm] = useState('');
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    onEscape: onClose,
+    autoFocus: false,
+  });
   const filtered = customers.filter(c =>
     c.name.toLowerCase().includes(term.toLowerCase()) || 
     (c.document && c.document.includes(term)) ||
@@ -520,7 +541,7 @@ export function CustomerModal({
       }}
       className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
     >
-      <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <span className="font-bold text-xs uppercase tracking-wider text-textMain flex items-center space-x-2">
             <User className="w-4 h-4 text-primary" />
@@ -583,6 +604,11 @@ export function DiscountModal({
 }) {
   const [type, setType] = useState<'VALUE' | 'PERCENT'>('VALUE');
   const [inputVal, setInputVal] = useState('');
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    onEscape: onClose,
+    autoFocus: false,
+  });
 
   const handleConfirm = () => {
     let discount = 0;
@@ -611,7 +637,7 @@ export function DiscountModal({
       }}
       className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
     >
-      <div className="bg-surface w-full max-w-xs rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-xs rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <span className="font-bold text-xs uppercase tracking-wider text-textMain flex items-center space-x-1.5">
             <Percent className="w-4 h-4 text-primary" />
@@ -676,6 +702,12 @@ export function SuspendedSalesModal({
   onDelete: (id: string) => void;
   onClose: () => void;
 }) {
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    onEscape: onClose,
+    autoFocus: true,
+  });
+
   return (
     <div 
       onKeyDown={(e) => {
@@ -687,7 +719,7 @@ export function SuspendedSalesModal({
       }}
       className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
     >
-      <div className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[80vh]">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[80vh]">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <span className="font-bold text-xs uppercase tracking-wider text-textMain flex items-center space-x-1.5">
             <PauseCircle className="w-4 h-4 text-amber-500" />
@@ -746,6 +778,11 @@ export function ReceiptModal({
   const { businessProfile } = useFinPdvStore();
   const nextBtnRef = useRef<HTMLButtonElement>(null);
   const [isPrinting, setIsPrinting] = useState(false);
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    onEscape: onClose,
+    autoFocus: false,
+  });
 
   const handleDirectPrint = async () => {
     if (isPrinting) return;
@@ -782,7 +819,7 @@ export function ReceiptModal({
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-md min-h-[600px] rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-md min-h-[600px] rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <span className="font-bold text-sm uppercase tracking-wider text-emerald-400">Venda Concluída</span>
           <button onClick={onClose} className="text-slate-400 hover:text-white p-1.5 rounded-lg">
@@ -888,6 +925,11 @@ export function OpenPriceModal({
 
   const priceRef = useRef<HTMLInputElement>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    onEscape: onClose,
+    autoFocus: false,
+  });
 
   useEffect(() => {
     setTimeout(() => {
@@ -954,7 +996,7 @@ export function OpenPriceModal({
       }}
       className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
     >
-      <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
         <div className="bg-primary text-white px-6 py-4 flex items-center justify-between">
           <div>
             <h3 className="font-bold text-base leading-tight">Informe o Valor do Item</h3>
@@ -1078,6 +1120,11 @@ export function QuickProductRegisterModal({
 
   const nameRef = useRef<HTMLInputElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: true,
+    onEscape: onClose,
+    autoFocus: false,
+  });
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -1114,7 +1161,7 @@ export function QuickProductRegisterModal({
 
   return (
     <div onKeyDown={handleKeyDown} className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
         <div className="bg-primary text-white px-6 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <PackagePlus className="w-6 h-6 text-highlight" />

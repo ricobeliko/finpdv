@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Unlock, Lock, ArrowDownLeft, ArrowUpRight, Printer, AlertTriangle } from 'lucide-react';
 import { CashClosingSummary } from '../types';
 import { useFinPdvStore } from '../../../core/finpdv/finpdvStore';
+import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -27,6 +28,7 @@ export function OpenCashModal({
   onClose: () => void;
   onConfirm: (initialAmountCents: number) => void;
 }) {
+  const trapRef = useFocusTrap<HTMLDivElement>({ isActive: isOpen, onEscape: onClose, autoFocus: false });
   if (!isOpen) return null;
   const [amount, setAmount] = useState('');
 
@@ -40,7 +42,7 @@ export function OpenCashModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <h3 className="font-bold text-textMain text-base flex items-center space-x-2">
             <Unlock className="w-5 h-5 text-primary" />
@@ -104,6 +106,7 @@ export function CashMovementModal({
   onClose: () => void;
   onConfirm: (amountCents: number, reason: string) => void;
 }) {
+  const trapRef = useFocusTrap<HTMLDivElement>({ isActive: isOpen, onEscape: onClose, autoFocus: false });
   if (!isOpen) return null;
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState(type === 'SUPPLY' ? 'Reforço de troco' : 'Recolhimento para o cofre');
@@ -129,7 +132,7 @@ export function CashMovementModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <h3 className="font-bold text-textMain text-base flex items-center space-x-2">
             {isWithdraw ? (
@@ -209,6 +212,7 @@ export function CloseCashBlindModal({
   onClose: () => void;
   onConfirm: (countedCents: number) => void;
 }) {
+  const trapRef = useFocusTrap<HTMLDivElement>({ isActive: isOpen, onEscape: onClose, autoFocus: false });
   if (!isOpen) return null;
   const [countedInput, setCountedInput] = useState('');
 
@@ -222,7 +226,7 @@ export function CloseCashBlindModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <h3 className="font-bold text-textMain text-base flex items-center space-x-2">
             <Lock className="w-5 h-5 text-danger" />
@@ -286,13 +290,14 @@ export function CashClosingReportModal({
   summary: CashClosingSummary;
   onClose: () => void;
 }) {
+  const trapRef = useFocusTrap<HTMLDivElement>({ isActive: true, onEscape: onClose, autoFocus: true });
   const { businessProfile } = useFinPdvStore();
   const isExact = summary.differenceCents === 0;
   const isOver = summary.differenceCents > 0;
 
   return (
     <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
         <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between">
           <span className="font-bold text-xs uppercase tracking-wider text-emerald-400">Resumo de Fechamento</span>
           <button onClick={onClose} className="text-slate-400 hover:text-white p-1">

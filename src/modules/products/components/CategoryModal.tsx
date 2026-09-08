@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Tags } from 'lucide-react';
+import { useFocusTrap } from '../../../shared/hooks/useFocusTrap';
 
 interface CategoryModalProps {
   isOpen: boolean;
@@ -8,6 +9,12 @@ interface CategoryModalProps {
 }
 
 export function CategoryModal({ isOpen, onClose, onSave }: CategoryModalProps) {
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: onClose,
+    autoFocus: true,
+  });
+
   if (!isOpen) return null;
   const [name, setName] = useState('');
 
@@ -20,7 +27,7 @@ export function CategoryModal({ isOpen, onClose, onSave }: CategoryModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-surface w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <h3 className="font-bold text-textMain text-base flex items-center space-x-2">
             <Tags className="w-5 h-5 text-primary" />

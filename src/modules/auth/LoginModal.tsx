@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useFinPdvStore } from '../../core/finpdv/finpdvStore';
 import { authService } from '../../core/auth/authService';
 import { Lock, User, KeyRound, AlertCircle, LogIn, X } from 'lucide-react';
+import { useFocusTrap } from '../../shared/hooks/useFocusTrap';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -19,6 +20,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const trapRef = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: canClose && onClose ? onClose : undefined,
+    autoFocus: false,
+  });
 
   if (!isOpen) return null;
 
@@ -46,7 +53,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in fade-in zoom-in-95 duration-200">
+      <div ref={trapRef} role="dialog" aria-modal="true" className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in fade-in zoom-in-95 duration-200">
         <div className="bg-gradient-to-r from-blue-700 to-indigo-800 p-6 border-b border-indigo-500/30 relative">
           {canClose && onClose && (
             <button

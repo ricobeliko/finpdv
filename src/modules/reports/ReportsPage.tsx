@@ -20,6 +20,7 @@ import { useCashStore } from '../cash/cashStore';
 import { useUserStore } from '../users/userStore';
 import { useProductStore } from '../products/productStore';
 import { useCustomerStore } from '../customers/customerStore';
+import { useFocusTrap } from '../../shared/hooks/useFocusTrap';
 
 const MONTH_ABBR = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
 
@@ -68,6 +69,11 @@ export function ReportsPage() {
   const isCancellingSaleRef = useRef(false);
   const { currentSession, initCash } = useCashStore();
   const { currentUser } = useUserStore();
+
+  const refundTrapRef = useFocusTrap<HTMLDivElement>({
+    isActive: !!selectedSaleForRefund,
+    onEscape: () => setSelectedSaleForRefund(null)
+  });
 
   const showToast = (msg: string, type: 'success' | 'warning' | 'danger' = 'success') => {
     setToast({ msg, type });
@@ -672,7 +678,7 @@ export function ReportsPage() {
       {/* MODAL DE CONFIRMAÇÃO DE ESTORNO DE VENDA */}
       {selectedSaleForRefund && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+          <div ref={refundTrapRef} className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
             <div className="p-4 bg-amber-600 text-white flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <AlertTriangle className="w-5 h-5" />

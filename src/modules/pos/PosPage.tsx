@@ -10,8 +10,10 @@ import {
   Trash2, 
   Tag, 
   Lock,
-  KeyRound
+  KeyRound,
+  Printer
 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { Product, UnitMeasure, OPEN_PRICE_PRODUCT_ID } from '../products/types';
 import { CartItem, CompletedSale, Customer, SuspendedSale } from './types';
 
@@ -122,6 +124,23 @@ export function PosPage() {
       showToast('Gaveta de dinheiro acionada [F8]!', 'success');
     } else {
       showToast('Nenhuma impressora térmica configurada.', 'warning');
+    }
+  };
+
+  const handleReprintLastReceipt = async () => {
+    const savedPrinter = getSelectedPrinter();
+    if (!savedPrinter) {
+      showToast('Nenhuma impressora configurada em Periféricos.', 'warning');
+      return;
+    }
+    try {
+      const res = await invoke<{ message: string }>('db_reprint_sale_receipt', {
+        saleId: null,
+        printerName: savedPrinter
+      });
+      showToast(res?.message || 'Último comprovante reimpresso com sucesso [F9]!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || String(err) || 'Erro ao reimprimir último comprovante.', 'danger');
     }
   };
 
@@ -480,6 +499,12 @@ export function PosPage() {
         return;
       }
 
+      if (e.key === 'F9') {
+        e.preventDefault();
+        handleReprintLastReceipt();
+        return;
+      }
+
       if (activeModal || pendingQuantityProduct || pendingOpenPrice || pendingQuickRegister) return;
 
       switch (e.key) {
@@ -734,8 +759,8 @@ export function PosPage() {
             </button>
           </div>
 
-          {/* BOTÕES INFERIORES: GAVETA (F8), SUSPENDER (F7) E CANCELAR (ESC) */}
-          <div className="grid grid-cols-3 gap-2 shrink-0">
+          {/* BOTÕES INFERIORES: GAVETA (F8), SUSPENDER (F7), REIMPRIMIR (F9) E CANCELAR (ESC) */}
+          <div className="grid grid-cols-4 gap-2 shrink-0">
             <button
               onClick={handleOpenDrawer}
               className="bg-emerald-800 hover:bg-emerald-700 text-emerald-100 py-3 px-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 border border-emerald-700 shadow-sm"
@@ -751,6 +776,15 @@ export function PosPage() {
             >
               <PauseCircle className="w-4 h-4 text-amber-400" />
               <span>[F7] {cart.length > 0 ? 'Suspender' : `Espera (${suspendedSales.length})`}</span>
+            </button>
+
+            <button
+              onClick={handleReprintLastReceipt}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-3 px-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 border border-slate-700"
+              title="Reimprimir Comprovante da Última Venda [F9]"
+            >
+              <Printer className="w-4 h-4 text-blue-400" />
+              <span>[F9] Reimp.</span>
             </button>
 
             <button

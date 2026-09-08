@@ -42,6 +42,7 @@ pub fn check_role_permission(role: &str, permission: &str) -> bool {
                 | "sale.cancel"
                 | "sale.discount"
                 | "sale.reopen"
+                | "sale.reprint"
                 | "product.view"
                 | "product.create"
                 | "product.edit"
@@ -59,6 +60,7 @@ pub fn check_role_permission(role: &str, permission: &str) -> bool {
             "sale.create"
                 | "sale.cancel"
                 | "sale.discount"
+                | "sale.reprint"
                 | "product.view"
                 | "cash.open"
                 | "cash.close"
@@ -68,7 +70,7 @@ pub fn check_role_permission(role: &str, permission: &str) -> bool {
         ),
         "OPERATOR" => matches!(
             permission,
-            "sale.create" | "product.view" | "cash.open" | "cash.close"
+            "sale.create" | "sale.reprint" | "product.view" | "cash.open" | "cash.close"
         ),
         "FINPDV_SUPPORT" => matches!(
             permission,

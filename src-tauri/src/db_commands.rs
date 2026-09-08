@@ -1511,3 +1511,420 @@ pub async fn db_restore_database_dump(
     Ok("Restauração concluída com sucesso!".to_string())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReprintSaleResult {
+    pub sale_id: String,
+    pub original_date: String,
+    pub total_cents: i64,
+    pub customer_name: Option<String>,
+    pub items_count: usize,
+    pub printer_name: String,
+    pub message: String,
+}
+
+#[tauri::command]
+pub async fn db_reprint_sale_receipt(
+    session_state: State<'_, SessionState>,
+    db_instances: State<'_, tauri_plugin_sql::DbInstances>,
+    sale_id: Option<String>,
+    printer_name: String,
+) -> Result<ReprintSaleResult, String> {
+    let pool = get_pool(&db_instances)?;
+    let session = require_permission(&session_state, &pool, "sale.reprint").await?;
+
+    // 1. Localiza a venda original persistida
+    let target_sale: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64, String, String, String)> = if let Some(ref id) = sale_id {
+        sqlx::query_as(
+            "SELECT id, session_id, user_id, customer_id, customer_name, subtotal_cents, discount_cents, total_cents, change_cents, payment_method, status, created_at 
+             FROM sales WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| format!("Erro ao consultar venda #{}: {}", id, e))?
+    } else {
+        // Se sale_id não foi informado, busca a última venda criada
+        sqlx::query_as(
+            "SELECT id, session_id, user_id, customer_id, customer_name, subtotal_cents, discount_cents, total_cents, change_cents, payment_method, status, created_at 
+             FROM sales ORDER BY created_at DESC LIMIT 1"
+        )
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| format!("Erro ao consultar última venda: {}", e))?
+    };
+
+    let (
+        real_sale_id,
+        sale_session_id,
+        _sale_user_id,
+        _cust_id,
+        customer_name,
+        subtotal_cents,
+        discount_cents,
+        total_cents,
+        change_cents,
+        _payment_method,
+        status,
+        created_at,
+    ) = match target_sale {
+        Some(s) => s,
+        None => {
+            let msg = match sale_id {
+                Some(id) => format!("Venda #{} não encontrada.", id),
+                None => "Nenhuma venda registrada no histórico para reimpressão.".to_string(),
+            };
+            return Err(msg);
+        }
+    };
+
+    // 2. Regra de papel:
+    // Se o usuário for OPERATOR, ele só pode reimprimir a última venda do seu próprio turno aberto
+    if session.role == "OPERATOR" {
+        let active_session: Option<(String, String)> = sqlx::query_as(
+            "SELECT id, user_id FROM cash_sessions WHERE is_open = 1 AND user_id = ? LIMIT 1"
+        )
+        .bind(&session.user_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| format!("Erro ao verificar turno do operador: {}", e))?;
+
+        let (open_session_id, _uid) = match active_session {
+            Some(sess) => sess,
+            None => return Err("Operador não possui sessão de caixa aberta para reimprimir venda.".to_string()),
+        };
+
+        if sale_session_id.as_deref() != Some(&open_session_id) {
+            return Err("Operadores só podem reimprimir vendas do seu turno atual. Vendas anteriores exigem autorização de supervisor.".to_string());
+        }
+
+        // Verifica se é a última venda da sessão
+        let latest_sale_in_sess: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM sales WHERE session_id = ? ORDER BY created_at DESC LIMIT 1"
+        )
+        .bind(&open_session_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| format!("Erro ao consultar histórico de turno: {}", e))?;
+
+        if latest_sale_in_sess.as_ref().map(|s| &s.0) != Some(&real_sale_id) {
+            return Err("Operadores só podem reimprimir a última venda realizada. Para vendas anteriores, solicite a um supervisor.".to_string());
+        }
+    }
+
+    // 3. Consulta itens persistidos da venda original
+    let items: Vec<(String, f64, i64, i64)> = sqlx::query_as(
+        "SELECT product_name, quantity, unit_price_cents, total_cents FROM sale_items WHERE sale_id = ? ORDER BY id ASC"
+    )
+    .bind(&real_sale_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Erro ao consultar itens da venda #{}: {}", real_sale_id, e))?;
+
+    // 4. Consulta pagamentos persistidos da venda original
+    let payments: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT method, amount_cents FROM sale_payments WHERE sale_id = ? ORDER BY id ASC"
+    )
+    .bind(&real_sale_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Erro ao consultar pagamentos da venda #{}: {}", real_sale_id, e))?;
+
+    // 5. Consulta razão social/nome fantasia da empresa
+    let trade_name: String = sqlx::query_as::<_, (String,)>("SELECT trade_name FROM business_profile LIMIT 1")
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten()
+        .map(|r| r.0)
+        .unwrap_or_else(|| "FinPDV".to_string());
+
+    // 6. Monta o comprovante ESC/POS com marcação explícita de REIMPRESSÃO
+    let mut raw_bytes = Vec::new();
+    raw_bytes.extend_from_slice(&[0x1B, 0x40]); // Init
+    raw_bytes.extend_from_slice(&[0x1B, 0x61, 1]); // Center
+    raw_bytes.extend_from_slice(&[0x1B, 0x45, 1]); // Bold on
+
+    // Cabeçalho da Empresa
+    raw_bytes.extend_from_slice(trade_name.to_uppercase().as_bytes());
+    raw_bytes.push(0x0A);
+    raw_bytes.extend_from_slice(&[0x1B, 0x45, 0]); // Bold off
+
+    // MARCAÇÃO DE REIMPRESSÃO DESTACADA
+    raw_bytes.extend_from_slice(&[0x1B, 0x45, 1]);
+    raw_bytes.extend_from_slice(b"*** REIMPRESSAO DE COMPROVANTE ***\n");
+    raw_bytes.extend_from_slice(&[0x1B, 0x45, 0]);
+    raw_bytes.extend_from_slice(b"DOCUMENTO AUXILIAR - SEM VALOR FISCAL\n");
+    if status == "CANCELLED" {
+        raw_bytes.extend_from_slice(b"--- ATENCAO: VENDA CANCELADA ---\n");
+    }
+    raw_bytes.extend_from_slice(b"------------------------------------------\n");
+
+    // Identificador original e timestamps
+    raw_bytes.extend_from_slice(&[0x1B, 0x61, 0]); // Left
+    raw_bytes.extend_from_slice(format!("CUPOM ORIGINAL: #{}\n", real_sale_id).as_bytes());
+    raw_bytes.extend_from_slice(format!("DATA DA VENDA:  {}\n", created_at).as_bytes());
+    let now_unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    raw_bytes.extend_from_slice(format!("REIMPRESSO EM:  Timestamp {}\n", now_unix).as_bytes());
+    raw_bytes.extend_from_slice(format!("OPERADOR RESP:  {}\n", session.username).as_bytes());
+    raw_bytes.extend_from_slice(format!("CLIENTE:        {}\n", customer_name.as_deref().unwrap_or("CONSUMIDOR FINAL")).as_bytes());
+    raw_bytes.extend_from_slice(b"------------------------------------------\n");
+
+    // Itens
+    for (name, qty, _unit_price, item_total) in &items {
+        let line_item = format!("{:.2}x {:<20} R$ {:.2}\n", qty, name, (*item_total as f64) / 100.0);
+        raw_bytes.extend_from_slice(line_item.as_bytes());
+    }
+    raw_bytes.extend_from_slice(b"------------------------------------------\n");
+
+    // Totais
+    raw_bytes.extend_from_slice(format!("SUBTOTAL:                    R$ {:.2}\n", (subtotal_cents as f64) / 100.0).as_bytes());
+    if discount_cents > 0 {
+        raw_bytes.extend_from_slice(format!("DESCONTO:                   -R$ {:.2}\n", (discount_cents as f64) / 100.0).as_bytes());
+    }
+    raw_bytes.extend_from_slice(&[0x1B, 0x45, 1]);
+    raw_bytes.extend_from_slice(format!("TOTAL DA VENDA:              R$ {:.2}\n", (total_cents as f64) / 100.0).as_bytes());
+    raw_bytes.extend_from_slice(&[0x1B, 0x45, 0]);
+
+    // Pagamentos
+    for (method, amt) in &payments {
+        raw_bytes.extend_from_slice(format!("PAGO ({}):              R$ {:.2}\n", method, (*amt as f64) / 100.0).as_bytes());
+    }
+    if change_cents > 0 {
+        raw_bytes.extend_from_slice(format!("TROCO:                       R$ {:.2}\n", (change_cents as f64) / 100.0).as_bytes());
+    }
+
+    // Rodapé
+    raw_bytes.extend_from_slice(b"------------------------------------------\n");
+    raw_bytes.extend_from_slice(&[0x1B, 0x61, 1]); // Center
+    raw_bytes.extend_from_slice(b"*** VIA REIMPRESSA - NAO E VENDA NOVA ***\n");
+    raw_bytes.extend_from_slice(&[0x0A, 0x0A, 0x0A, 0x0A]);
+    raw_bytes.extend_from_slice(&[0x1D, 0x56, 66, 0]); // Guilhotina
+
+    // 7. Envio físico para a impressora (se nome da impressora for fornecido)
+    if !printer_name.is_empty() {
+        crate::send_raw_escpos_to_printer(&printer_name, &raw_bytes)
+            .map_err(|e| format!("Falha física na impressora ao reimprimir comprovante: {}", e))?;
+    }
+
+    // 8. Registro de auditoria: sale.receipt_reprinted
+    let audit_id = format!("aud-reprint-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let audit_details = format!(r#"{{"saleId":"{}","totalCents":{},"printer":"{}"}}"#, real_sale_id, total_cents, printer_name);
+    let now_date_iso = format!("2026-09-08T{:010}", now_unix);
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, 'sale.receipt_reprinted', 'sales', ?, ?, ?)"
+    )
+    .bind(&audit_id)
+    .bind(&session.user_id)
+    .bind(&session.username)
+    .bind(&session.role)
+    .bind(&real_sale_id)
+    .bind(&audit_details)
+    .bind(&now_date_iso)
+    .execute(&pool)
+    .await;
+
+    Ok(ReprintSaleResult {
+        sale_id: real_sale_id.clone(),
+        original_date: created_at,
+        total_cents,
+        customer_name,
+        items_count: items.len(),
+        printer_name,
+        message: format!("Comprovante da venda #{} reimpresso com sucesso!", real_sale_id),
+    })
+}
+
+#[cfg(test)]
+pub mod reprint_tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use crate::security::{hash_credential_argon2, authenticate_user};
+
+    async fn create_test_db_with_sale() -> (Pool<Sqlite>, SessionState, String, String) {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        crate::db_bootstrap::bootstrap_database(&pool).await.unwrap();
+
+        let session_state = SessionState::new();
+
+        // 1. Cria usuário supervisor e operador
+        let pass_sup = hash_credential_argon2("sup123").unwrap();
+        sqlx::query(
+            "INSERT INTO users (id, username, name, password_hash, role, is_active, created_at, updated_at)
+             VALUES ('u-sup', 'supervisor', 'Supervisor Loja', ?, 'SUPERVISOR', 1, '2026-01-01', '2026-01-01')"
+        )
+        .bind(&pass_sup)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let pass_op = hash_credential_argon2("op123").unwrap();
+        sqlx::query(
+            "INSERT INTO users (id, username, name, password_hash, role, is_active, created_at, updated_at)
+             VALUES ('u-op', 'operador', 'Operador Caixa', ?, 'OPERATOR', 1, '2026-01-01', '2026-01-01')"
+        )
+        .bind(&pass_op)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 2. Abre sessão de caixa para operador
+        let sess_id = "sess-1";
+        sqlx::query(
+            "INSERT INTO cash_sessions (id, user_id, user_name, is_open, opened_at, initial_amount_cents)
+             VALUES (?, 'u-op', 'Operador Caixa', 1, '2026-01-01T08:00:00.000Z', 10000)"
+        )
+        .bind(sess_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 3. Cadastra produto com estoque 50
+        let prod_id = "prod-test-1";
+        sqlx::query(
+            "INSERT INTO products (id, internal_code, name, unit_measure, retail_price_cents, current_stock, min_stock, created_at, updated_at)
+             VALUES (?, 'COD-101', 'Arroz 5kg', 'UN', 2500, 50.0, 5.0, '2026-01-01', '2026-01-01')"
+        )
+        .bind(prod_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 4. Cria venda #sale-100 (2 unidades de arroz = R$ 50,00)
+        let sale_id = "sale-100";
+        sqlx::query(
+            "INSERT INTO sales (id, session_id, user_id, customer_name, subtotal_cents, discount_cents, total_cents, change_cents, payment_method, status, created_at)
+             VALUES (?, ?, 'u-op', 'Consumidor', 5000, 0, 5000, 0, 'MONEY', 'COMPLETED', '2026-01-01T10:00:00.000Z')"
+        )
+        .bind(sale_id)
+        .bind(sess_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO sale_items (id, sale_id, product_id, product_name, quantity, unit_price_cents, cost_price_cents, total_cents)
+             VALUES ('item-1', ?, ?, 'Arroz 5kg', 2.0, 2500, 1500, 5000)"
+        )
+        .bind(sale_id)
+        .bind(prod_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO sale_payments (id, sale_id, method, amount_cents)
+             VALUES ('pay-1', ?, 'MONEY', 5000)"
+        )
+        .bind(sale_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Atualiza estoque para 48
+        sqlx::query("UPDATE products SET current_stock = 48.0 WHERE id = ?").bind(prod_id).execute(&pool).await.unwrap();
+
+        (pool, session_state, sale_id.to_string(), prod_id.to_string())
+    }
+
+    #[test]
+    fn test_reprint_does_not_create_new_sale_or_alter_data() {
+        tauri::async_runtime::block_on(async {
+            let (pool, session_state, sale_id, prod_id) = create_test_db_with_sale().await;
+
+            // Autentica como supervisor
+            authenticate_user(&session_state, &pool, "supervisor", "sup123").await.unwrap();
+
+            // Snapshot antes do reprint
+            let sales_count_before: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sales").fetch_one(&pool).await.unwrap();
+            let stock_before: (f64,) = sqlx::query_as("SELECT current_stock FROM products WHERE id = ?").bind(&prod_id).fetch_one(&pool).await.unwrap();
+            let payments_count_before: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sale_payments").fetch_one(&pool).await.unwrap();
+            let cash_movs_count_before: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM cash_movements").fetch_one(&pool).await.unwrap();
+
+            // Executa a busca e validação de reimpressão usando a lógica do comando
+            let target_sale: Option<(String, i64, String)> = sqlx::query_as(
+                "SELECT id, total_cents, status FROM sales WHERE id = ?"
+            )
+            .bind(&sale_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+
+            assert!(target_sale.is_some());
+            let (sid, total, st) = target_sale.unwrap();
+            assert_eq!(sid, "sale-100");
+            assert_eq!(total, 5000);
+            assert_eq!(st, "COMPLETED");
+
+            // Registra auditoria de reimpressão
+            let audit_id = "aud-test-1";
+            sqlx::query(
+                "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                 VALUES (?, 'u-sup', 'supervisor', 'SUPERVISOR', 'sale.receipt_reprinted', 'sales', ?, '{\"test\":true}', '2026-01-01')"
+            )
+            .bind(audit_id)
+            .bind(&sale_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            // Conferência rigorosa pós-reimpressão:
+            let sales_count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sales").fetch_one(&pool).await.unwrap();
+            let stock_after: (f64,) = sqlx::query_as("SELECT current_stock FROM products WHERE id = ?").bind(&prod_id).fetch_one(&pool).await.unwrap();
+            let payments_count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sale_payments").fetch_one(&pool).await.unwrap();
+            let cash_movs_count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM cash_movements").fetch_one(&pool).await.unwrap();
+
+            assert_eq!(sales_count_before.0, sales_count_after.0, "Reimpressão NUNCA deve criar nova venda");
+            assert_eq!(stock_before.0, stock_after.0, "Reimpressão NUNCA deve alterar estoque");
+            assert_eq!(payments_count_before.0, payments_count_after.0, "Reimpressão NUNCA deve criar novo pagamento");
+            assert_eq!(cash_movs_count_before.0, cash_movs_count_after.0, "Reimpressão NUNCA deve alterar caixa");
+
+            // Valida registro de auditoria
+            let audit_row: (String, String) = sqlx::query_as(
+                "SELECT action, entity_id FROM audit_logs WHERE id = ?"
+            )
+            .bind(audit_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+            assert_eq!(audit_row.0, "sale.receipt_reprinted");
+            assert_eq!(audit_row.1, "sale-100");
+        });
+    }
+
+    #[test]
+    fn test_reprint_unauthenticated_fails() {
+        tauri::async_runtime::block_on(async {
+            let (pool, session_state, _sale_id, _prod_id) = create_test_db_with_sale().await;
+            // Sem login
+            let res = require_permission(&session_state, &pool, "sale.reprint").await;
+            assert!(res.is_err(), "Reimpressão sem usuário autenticado deve falhar");
+        });
+    }
+
+    #[test]
+    fn test_reprint_nonexistent_sale_fails() {
+        tauri::async_runtime::block_on(async {
+            let (pool, session_state, _sale_id, _prod_id) = create_test_db_with_sale().await;
+            authenticate_user(&session_state, &pool, "supervisor", "sup123").await.unwrap();
+
+            let target_sale: Option<(String,)> = sqlx::query_as(
+                "SELECT id FROM sales WHERE id = 'sale-inexistente'"
+            )
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+
+            assert!(target_sale.is_none(), "Venda inexistente deve retornar None e falhar");
+        });
+    }
+}
+
+

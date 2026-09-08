@@ -10,6 +10,7 @@ export type PermissionCode =
   | 'sale.cancel'
   | 'sale.discount'
   | 'sale.reopen'
+  | 'sale.reprint'
   | 'cash.open'
   | 'cash.close'
   | 'cash.withdraw'
@@ -33,6 +34,7 @@ export type PermissionCode =
 export const ROLE_PERMISSIONS: Record<RoleType, PermissionCode[]> = {
   OPERATOR: [
     'sale.create',
+    'sale.reprint',
     'product.view',
     'cash.open',
     'cash.close',
@@ -41,6 +43,7 @@ export const ROLE_PERMISSIONS: Record<RoleType, PermissionCode[]> = {
     'sale.create',
     'sale.cancel',
     'sale.discount',
+    'sale.reprint',
     'product.view',
     'cash.open',
     'cash.close',
@@ -53,6 +56,7 @@ export const ROLE_PERMISSIONS: Record<RoleType, PermissionCode[]> = {
     'sale.cancel',
     'sale.discount',
     'sale.reopen',
+    'sale.reprint',
     'product.view',
     'product.create',
     'product.edit',
@@ -70,6 +74,7 @@ export const ROLE_PERMISSIONS: Record<RoleType, PermissionCode[]> = {
     'sale.cancel',
     'sale.discount',
     'sale.reopen',
+    'sale.reprint',
     'product.view',
     'product.create',
     'product.edit',

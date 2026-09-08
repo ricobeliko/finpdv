@@ -12,6 +12,8 @@ import {
   Ban
 } from 'lucide-react';
 import { loadClosedCashSessionsDb, loadSalesDb, loadProductsFromDb, cancelSaleDb } from '../../core/database/db';
+import { invoke } from '@tauri-apps/api/core';
+import { getSelectedPrinter } from '../../core/utils/storageMigration';
 import { Product } from '../products/types';
 import { CashClosingSummary } from '../cash/types';
 import { useCashStore } from '../cash/cashStore';
@@ -245,6 +247,23 @@ export function ReportsPage() {
       showToast(err?.message || String(err) || 'Erro ao realizar cancelamento.', 'danger');
     } finally {
       isCancellingSaleRef.current = false;
+    }
+  };
+
+  const handleReprintSale = async (saleId: string) => {
+    const printer = getSelectedPrinter();
+    if (!printer) {
+      showToast('Nenhuma impressora térmica configurada nas preferências.', 'warning');
+      return;
+    }
+    try {
+      const res = await invoke<{ message: string }>('db_reprint_sale_receipt', {
+        saleId,
+        printerName: printer
+      });
+      showToast(res?.message || `Comprovante da venda #${saleId} reimpresso!`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || String(err) || 'Erro ao reimprimir comprovante.', 'danger');
     }
   };
 
@@ -573,25 +592,36 @@ export function ReportsPage() {
                           {formatBRL(s.total_cents)}
                         </td>
                         <td className="py-3 px-2 text-center font-sans">
-                          {!isCancelled ? (
+                          <div className="flex items-center justify-center space-x-1.5">
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedSaleForRefund(s);
-                                setSaleRefundReason('');
-                              }}
-                              className="text-amber-700 hover:bg-amber-100 px-2 py-1 rounded text-[10px] font-bold transition-all flex items-center space-x-1 mx-auto"
-                              title="Cancelar e estornar esta venda"
+                              onClick={() => handleReprintSale(s.id)}
+                              className="text-slate-700 hover:bg-slate-100 border border-slate-200 px-2 py-1 rounded text-[10px] font-bold transition-all flex items-center space-x-1"
+                              title="Reimprimir comprovante desta venda"
                             >
-                              <RotateCcw className="w-3 h-3" />
-                              <span>Estornar</span>
+                              <Printer className="w-3 h-3 text-slate-600" />
+                              <span>Reimprimir</span>
                             </button>
-                          ) : (
-                            <span className="text-[10px] font-bold text-slate-400 flex items-center justify-center space-x-1">
-                              <Ban className="w-3 h-3 text-slate-400" />
-                              <span>Cancelada</span>
-                            </span>
-                          )}
+                            {!isCancelled ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSaleForRefund(s);
+                                  setSaleRefundReason('');
+                                }}
+                                className="text-amber-700 hover:bg-amber-100 border border-amber-200 px-2 py-1 rounded text-[10px] font-bold transition-all flex items-center space-x-1"
+                                title="Cancelar e estornar esta venda"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>Estornar</span>
+                              </button>
+                            ) : (
+                              <span className="text-[10px] font-bold text-slate-400 flex items-center justify-center space-x-1 px-1 py-0.5">
+                                <Ban className="w-3 h-3 text-slate-400" />
+                                <span>Cancelada</span>
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

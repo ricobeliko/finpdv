@@ -65,8 +65,7 @@ fn get_printers() -> Result<Vec<String>, String> {
 }
 
 // 2. ENVIA BYTES ESC/POS DIRETO PARA O SPOOLER (SEM CAIXA DE DIÁLOGO)
-#[tauri::command]
-fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
+pub fn send_raw_escpos_to_printer(printer_name: &str, data: &[u8]) -> Result<(), String> {
     #[cfg(windows)]
     unsafe {
         let spool = LoadLibraryA(b"winspool.drv\0".as_ptr());
@@ -102,7 +101,7 @@ fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
         let end_doc_printer: EndDocPrinterFn = std::mem::transmute(end_doc_ptr);
         let close_printer: ClosePrinterFn = std::mem::transmute(close_printer_ptr);
 
-        let mut name_wide: Vec<u16> = OsStr::new(&printer_name)
+        let mut name_wide: Vec<u16> = OsStr::new(printer_name)
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
@@ -160,6 +159,11 @@ fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
         println!("Impressão RAW simulada: {} bytes", data.len());
         Ok(())
     }
+}
+
+#[tauri::command]
+fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
+    send_raw_escpos_to_printer(&printer_name, &data)
 }
 
 mod cosmos_lookup;
@@ -313,7 +317,8 @@ pub fn run() {
             db_commands::db_save_installation_info,
             db_commands::db_insert_audit_log,
             db_commands::db_reset_database,
-            db_commands::db_restore_database_dump
+            db_commands::db_restore_database_dump,
+            db_commands::db_reprint_sale_receipt
         ])
         .run(tauri::generate_context!())
         .expect("erro ao executar aplicação tauri");

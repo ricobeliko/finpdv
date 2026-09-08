@@ -139,7 +139,7 @@ export function PosPage() {
         saleId: null,
         printerName: savedPrinter
       });
-      showToast(res?.message || 'Último comprovante reimpresso com sucesso [F9]!', 'success');
+      showToast(res?.message || 'Último comprovante reimpresso com sucesso [F10]!', 'success');
     } catch (err: any) {
       showToast(sanitizeErrorMessage(err, 'Erro ao reimprimir último comprovante.'), 'danger');
     }
@@ -494,6 +494,9 @@ export function PosPage() {
         return;
       }
 
+      // Guarda estrita: nenhum atalho global vaza se houver modal ou operação pendente
+      if (activeModal || pendingQuantityProduct || pendingOpenPrice || pendingQuickRegister) return;
+
       if (e.key === 'F8') {
         e.preventDefault();
         handleOpenDrawer();
@@ -502,11 +505,15 @@ export function PosPage() {
 
       if (e.key === 'F9') {
         e.preventDefault();
-        handleReprintLastReceipt();
+        handleCancelSale();
         return;
       }
 
-      if (activeModal || pendingQuantityProduct || pendingOpenPrice || pendingQuickRegister) return;
+      if (e.key === 'F10') {
+        e.preventDefault();
+        handleReprintLastReceipt();
+        return;
+      }
 
       switch (e.key) {
         case 'F1':
@@ -760,12 +767,12 @@ export function PosPage() {
             </button>
           </div>
 
-          {/* BOTÕES INFERIORES: GAVETA (F8), SUSPENDER (F7), REIMPRIMIR (F9) E CANCELAR (ESC) */}
+          {/* BOTÕES INFERIORES: GAVETA (F8), SUSPENDER (F7), REIMPRIMIR (F10) E CANCELAR (F9) */}
           <div className="grid grid-cols-4 gap-2 shrink-0">
             <button
               onClick={handleOpenDrawer}
               className="bg-emerald-800 hover:bg-emerald-700 text-emerald-100 py-3 px-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 border border-emerald-700 shadow-sm"
-              title="Abrir Gaveta de Dinheiro"
+              title="Abrir Gaveta de Dinheiro [F8]"
             >
               <KeyRound className="w-4 h-4 text-emerald-300" />
               <span>[F8] Gaveta</span>
@@ -774,6 +781,7 @@ export function PosPage() {
             <button
               onClick={cart.length > 0 ? handleSuspendSale : () => setActiveModal('SUSPENDED')}
               className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-3 px-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 border border-slate-700"
+              title="Suspender Venda ou Ver Vendas em Espera [F7]"
             >
               <PauseCircle className="w-4 h-4 text-amber-400" />
               <span>[F7] {cart.length > 0 ? 'Suspender' : `Espera (${suspendedSales.length})`}</span>
@@ -782,18 +790,19 @@ export function PosPage() {
             <button
               onClick={handleReprintLastReceipt}
               className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-3 px-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 border border-slate-700"
-              title="Reimprimir Comprovante da Última Venda [F9]"
+              title="Reimprimir Comprovante da Última Venda [F10]"
             >
               <Printer className="w-4 h-4 text-blue-400" />
-              <span>[F9] Reimp.</span>
+              <span>[F10] Reimp.</span>
             </button>
 
             <button
               onClick={handleCancelSale}
               className="bg-red-950/80 hover:bg-red-900 text-red-200 py-3 px-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 border border-red-800"
+              title="Cancelar Venda em Andamento [F9 / ESC]"
             >
               <Trash2 className="w-4 h-4 text-red-400" />
-              <span>[ESC] Cancelar</span>
+              <span>[F9] Cancelar</span>
             </button>
           </div>
         </div>

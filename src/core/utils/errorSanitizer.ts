@@ -47,7 +47,7 @@ export function sanitizeErrorMessage(err: unknown, fallbackMessage = 'Ocorreu um
 
   // 7. Impressora e periféricos
   if (lower.includes('printer') || lower.includes('spooler') || lower.includes('impressora')) {
-    return 'Impressora não respondeu. Comprovante pode ser reimpresso [F9].';
+    return 'Impressora não respondeu. Comprovante pode ser reimpresso [F10].';
   }
 
   // 8. Ocultar SQL bruto, caminhos de arquivo ou hashes

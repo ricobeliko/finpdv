@@ -26,5 +26,5 @@ Utilize esta skill sempre que alterar rotinas de impressão térmica (`printer.t
 
 ## 3. Resiliência Operacional em Falha de Impressão
 * **Hardware Offline Não Invalida Venda:** Se a impressora estiver sem papel, desconectada ou desligada no momento do encerramento da venda, a venda no SQLite já está commitada e garantida.
-* **Alerta Limpo e Retentativa:** O sistema emite mensagem clara ao operador (`"Aviso: Não foi possível imprimir o comprovante neste momento."`) e disponibiliza o atalho `[F9]` para reimprimir o último cupom assim que a impressora for reestabelecida.
+* **Alerta Limpo e Retentativa:** O sistema emite mensagem clara ao operador (`"Aviso: Não foi possível imprimir o comprovante neste momento."`) e disponibiliza o atalho `[F10]` para reimprimir o último cupom assim que a impressora for reestabelecida.
 * **Confinamento de Foco com Leitor:** Os modais do PDV contam com `useFocusTrap` ativo para impedir que o leitor de código de barras (scanner USB) injete caracteres na tela de fundo durante a finalização do pagamento.

@@ -101,7 +101,7 @@ Este documento orienta o suporte técnico e os operadores autorizados sobre como
   1. Bipar 1 produto de teste;
   2. Concluir a venda no valor exato com forma de pagamento Dinheiro;
   3. Verificar a impressão do cupom térmico;
-  4. Pressionar `F9` para testar a **Reimpressão do Comprovante**;
+  4. Pressionar `F10` para testar a **Reimpressão do Comprovante**;
   5. Cancelar / estornar a venda de teste pelo módulo de Relatórios para manter o estoque e caixa calibrados.
 
 ### Passo 15: Liberação Oficial para Operação

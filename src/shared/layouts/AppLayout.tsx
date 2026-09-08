@@ -108,7 +108,7 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
             className="flex items-center space-x-1.5 text-xs bg-white/10 hover:bg-white/20 text-white px-2.5 py-1 rounded border border-white/20 transition-colors"
           >
             <Keyboard className="w-3.5 h-3.5 text-highlight" />
-            <span>Atalhos (F1-F8)</span>
+            <span>Atalhos (F1-F10)</span>
           </button>
 
           {/* IDENTIFICAÇÃO DO ADMINISTRADOR */}
@@ -243,6 +243,14 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
               <div className="flex items-center justify-between p-2.5 bg-emerald-50/50 rounded-xl border border-emerald-200">
                 <span className="font-mono text-xs font-bold text-primary bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md">[F8]</span>
                 <span className="text-xs font-bold text-primary">Abrir Gaveta de Dinheiro</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-red-50/50 rounded-xl border border-red-200">
+                <span className="font-mono text-xs font-bold text-red-700 bg-red-100 border border-red-300 px-2 py-0.5 rounded-md">[F9]</span>
+                <span className="text-xs font-bold text-red-700">Cancelar Venda em Andamento</span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 bg-blue-50/50 rounded-xl border border-blue-200">
+                <span className="font-mono text-xs font-bold text-blue-700 bg-blue-100 border border-blue-300 px-2 py-0.5 rounded-md">[F10]</span>
+                <span className="text-xs font-bold text-blue-700">Reimprimir Último Comprovante</span>
               </div>
               <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
                 <span className="font-mono text-xs font-bold text-slate-800 bg-slate-200 px-2 py-0.5 rounded-md">[1 + ENTER]</span>

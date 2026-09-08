@@ -21,7 +21,7 @@ Utilize esta skill sempre que modificar fluxos de frente de caixa, carrinho, pag
 * **Isolamento de Itens Virtuais:** O item virtual `Varejo Diversos` / `prod-open-price-1` não altera o estoque de produtos físicos nem bloqueia a venda por ausência de cadastro prévio.
 
 ## 3. Reimpressão Segura de Comprovantes
-* **Leitura Exclusiva de Dados Persistidos:** A reimpressão de cupom (`db_reprint_sale_receipt` ou atalho `[F9]`) reconstrói o comprovante unicamente a partir de registros já gravados em `sales`, `sale_items` e `sale_payments`.
+* **Leitura Exclusiva de Dados Persistidos:** A reimpressão de cupom (`db_reprint_sale_receipt` ou atalho `[F10]`) reconstrói o comprovante unicamente a partir de registros já gravados em `sales`, `sale_items` e `sale_payments`.
 * **Zero Efeitos Colaterais:** A reimpressão NUNCA cria nova venda, não altera estoque, não movimenta caixa, não altera timestamps e não modifica totais da venda original.
 * **Identificação Visual:** O comprovante reimpresso exibe explicitamente a marcação `REIMPRESSÃO`, preservando o ID original da transação.
 * **Auditoria:** Toda reimpressão registra o evento `sale.receipt_reprinted` com usuário, perfil, cupom e timestamp.

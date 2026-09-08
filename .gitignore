@@ -38,9 +38,16 @@ Thumbs.db
 
 .idea/
 
-# Chaves do Updater
+# Chaves do Updater e Certificados
 src-tauri/updater_key
 *.key
+*.pem
+*.priv
+*.pub
+*.cert
+*.crt
+*.pfx
+*.p12
 
 # Temporários
 *.tmp

@@ -570,7 +570,7 @@ export function PosPage() {
               </div>
             ) : cart.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-textMuted p-6 animate-fade-in">
-                <img src="/icon.png" alt="Mercearia Uber" className="w-16 h-16 rounded-2xl shadow-md mb-3 object-cover opacity-95" />
+                <img src="/icon.png" alt="FinPDV" className="w-16 h-16 rounded-2xl shadow-md mb-3 object-cover opacity-95" />
                 <p className="text-sm font-bold text-slate-700">Caixa Livre para Registro</p>
                 <p className="text-xs text-slate-400 mt-1">
                   Passe o código de barras, pressione <strong className="text-primary font-mono font-bold">[F3]</strong> para busca ou digite <strong className="text-primary font-mono font-bold">[1 + ENTER]</strong> para Preço Livre

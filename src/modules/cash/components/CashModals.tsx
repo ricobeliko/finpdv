@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Unlock, Lock, ArrowDownLeft, ArrowUpRight, Printer, AlertTriangle } from 'lucide-react';
 import { CashClosingSummary } from '../types';
+import { useFinPdvStore } from '../../../core/finpdv/finpdvStore';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -285,6 +286,7 @@ export function CashClosingReportModal({
   summary: CashClosingSummary;
   onClose: () => void;
 }) {
+  const { businessProfile } = useFinPdvStore();
   const isExact = summary.differenceCents === 0;
   const isOver = summary.differenceCents > 0;
 
@@ -301,7 +303,9 @@ export function CashClosingReportModal({
         {/* CUPOM DE CONFERÊNCIA */}
         <div className="p-6 bg-slate-50 font-mono text-xs text-slate-800 space-y-3 overflow-y-auto flex-1 border-b border-dashed border-slate-300">
           <div className="text-center pb-2 border-b border-dashed border-slate-300">
-            <p className="font-bold text-sm font-sans">MERCEARIA UBER</p>
+            <p className="font-bold text-sm font-sans">
+              {businessProfile?.tradeName ? businessProfile.tradeName.toUpperCase() : 'FINPDV'}
+            </p>
             <p className="text-[10px] text-textMuted">CONFERÊNCIA DE FECHAMENTO DE CAIXA</p>
           </div>
 

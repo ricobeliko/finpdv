@@ -21,6 +21,7 @@ import { Product } from '../../products/types';
 import { CartItem, CompletedSale, Customer, PaymentEntry, PaymentMethod, SuspendedSale } from '../types';
 import { printReceipt } from '../../../core/hardware/printer';
 import { useCashStore } from '../../cash/cashStore';
+import { useFinPdvStore } from '../../../core/finpdv/finpdvStore';
 
 const formatBRL = (cents: number) => {
   return ((cents || 0) / 100).toLocaleString('pt-BR', {
@@ -741,12 +742,13 @@ export function ReceiptModal({
   sale: CompletedSale;
   onClose: () => void;
 }) {
+  const { businessProfile } = useFinPdvStore();
   const nextBtnRef = useRef<HTMLButtonElement>(null);
   const [isPrinting, setIsPrinting] = useState(false);
 
   const handleDirectPrint = async () => {
     if (isPrinting) return;
-    const savedPrinter = localStorage.getItem('mercado_selected_printer') || '';
+    const savedPrinter = localStorage.getItem('finpdv_selected_printer') || localStorage.getItem('mercado_selected_printer') || '';
     if (!savedPrinter) {
       alert('Selecione e salve uma impressora na aba "Configurações & Backup > Periféricos" primeiro.');
       return;
@@ -791,7 +793,9 @@ export function ReceiptModal({
         <div className="p-7 bg-amber-50/20 font-mono text-slate-800 space-y-4 overflow-y-auto flex-1 border-b border-dashed border-slate-300 flex flex-col justify-between">
           <div className="space-y-3.5">
             <div className="text-center pb-3 border-b border-dashed border-slate-300">
-              <p className="font-black text-lg md:text-xl tracking-wide text-slate-900">MERCEARIA UBER</p>
+              <p className="font-black text-lg md:text-xl tracking-wide text-slate-900">
+                {businessProfile?.tradeName ? businessProfile.tradeName.toUpperCase() : 'FINPDV'}
+              </p>
               <p className="text-xs font-semibold text-slate-600 mt-1">DOCUMENTO AUXILIAR DE VENDA</p>
               <p className="text-xs text-slate-400">SEM VALOR FISCAL</p>
             </div>

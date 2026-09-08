@@ -18,7 +18,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
   // Determina categoria padrão inicial (Memória do último uso ou 'Mercearia & Grãos')
   const getInitialCategoryId = () => {
     if (initialData?.categoryId) return initialData.categoryId;
-    const savedLastCat = localStorage.getItem('mercado_pos_last_category_id');
+    const savedLastCat = localStorage.getItem('finpdv_last_category_id') || localStorage.getItem('mercado_pos_last_category_id');
     if (savedLastCat && categories.some(c => c.id === savedLastCat)) {
       return savedLastCat;
     }
@@ -176,7 +176,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
           });
           if (matchedCat) {
             setCategoryId(matchedCat.id);
-            localStorage.setItem('mercado_pos_last_category_id', matchedCat.id);
+            localStorage.setItem('finpdv_last_category_id', matchedCat.id);
           }
         }
 
@@ -250,7 +250,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
   const handleCategoryChange = (newCatId: string) => {
     setCategoryId(newCatId);
     isCategoryManuallyEditedRef.current = true;
-    localStorage.setItem('mercado_pos_last_category_id', newCatId);
+    localStorage.setItem('finpdv_last_category_id', newCatId);
   };
 
   const handleAddTier = () => {
@@ -323,7 +323,7 @@ export function ProductFormModal({ isOpen, onClose, onSave, categories, initialD
 
     // Salva a última categoria utilizada na memória
     if (categoryId) {
-      localStorage.setItem('mercado_pos_last_category_id', categoryId);
+      localStorage.setItem('finpdv_last_category_id', categoryId);
     }
 
     // ATIVAÇÃO DA TRAVA SÍNCRONA E VISUAL

@@ -63,7 +63,7 @@ export const usePosStore = create<PosState>()(
       hasActiveSale: () => get().cart.length > 0
     }),
     {
-      name: 'mercado_pos_active_session_data',
+      name: 'finpdv_active_session_data',
       partialize: (state) => ({
         cart: state.cart,
         selectedCartIndex: state.selectedCartIndex,

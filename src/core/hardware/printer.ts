@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { CompletedSale } from '../../modules/pos/types';
+import { useFinPdvStore } from '../finpdv/finpdvStore';
 
 const ESC = 0x1B;
 const GS = 0x1D;
@@ -103,11 +104,13 @@ export async function printReceipt(sale: CompletedSale, printerName: string) {
   const formatBRL = (cents: number) =>
     ((cents || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+  const tradeName = useFinPdvStore.getState().businessProfile?.tradeName || 'FinPDV';
+
   const builder = new EscPosBuilder()
     .init()
     .alignCenter()
     .bold(true)
-    .text('MERCEARIA UBER').newLine()
+    .text(tradeName.toUpperCase()).newLine()
     .bold(false)
     .text('DOCUMENTO AUXILIAR DE VENDA').newLine()
     .text('SEM VALOR FISCAL').newLine()
@@ -160,11 +163,13 @@ export async function printReceipt(sale: CompletedSale, printerName: string) {
 export async function testPrinter(printerName: string) {
   if (!printerName) throw new Error('Selecione uma impressora primeiro.');
 
+  const tradeName = useFinPdvStore.getState().businessProfile?.tradeName || 'FinPDV';
+
   const builder = new EscPosBuilder()
     .init()
     .alignCenter()
     .bold(true)
-    .text('MERCEARIA UBER - TESTE DE IMPRESSAO').newLine()
+    .text(`${tradeName.toUpperCase()} - TESTE DE IMPRESSAO`).newLine()
     .bold(false)
     .text('COMUNICACAO ESC/POS DIRETA').newLine()
     .separator()

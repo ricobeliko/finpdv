@@ -34,6 +34,8 @@ import { BackupRecord } from './types';
 import { RestoreConfirmModal } from './components/RestoreConfirmModal';
 import { getInstalledPrinters, testPrinter, triggerDrawer } from '../../core/hardware/printer';
 import { checkForAppUpdates, installAndRestartApp, parseReleaseHighlights, UpdateStatus } from '../../core/updater/updaterService';
+import { useFinPdvStore } from '../../core/finpdv/finpdvStore';
+import { authService } from '../../core/auth/authService';
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 Bytes';
@@ -796,7 +798,7 @@ export function SettingsPage() {
             {updateStatus.state === 'UP_TO_DATE' && (
               <p className="text-xs text-emerald-700 font-medium flex items-center space-x-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Você está utilizando a versão mais recente da Mercearia Uber.</span>
+                <span>Você está utilizando a versão mais recente do FinPDV.</span>
               </p>
             )}
 
@@ -859,16 +861,18 @@ export function SettingsPage() {
  * Modal de confirmação para a ação destrutiva de zerar o banco de dados.
  */
 function ResetDataModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; onClose: () => void; onConfirm: () => Promise<void>; }) {
+  const { currentUser } = useFinPdvStore();
   const [confirmationText, setConfirmationText] = useState('');
-  const [pinText, setPinText] = useState('');
+  const [passwordText, setPasswordText] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const confirmationPhrase = 'ZERAR TUDO';
-  const isConfirmed = confirmationText === confirmationPhrase && pinText === '1234';
 
   useEffect(() => {
     if (isOpen) {
       setConfirmationText('');
-      setPinText('');
+      setPasswordText('');
+      setAuthError(null);
       setIsDeleting(false);
     }
   }, [isOpen]);
@@ -876,15 +880,31 @@ function ResetDataModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; onClo
   if (!isOpen) return null;
 
   const handleConfirmClick = async () => {
-    if (!isConfirmed || isDeleting) return;
+    if (confirmationText !== confirmationPhrase || isDeleting) return;
+    setAuthError(null);
     setIsDeleting(true);
+
     try {
+      // Validar senha do Administrador logado
+      if (currentUser) {
+        const isValid = await authService.verifyCredential(passwordText, currentUser.passwordHash);
+        const isPinValid = currentUser.pinHash ? await authService.verifyCredential(passwordText, currentUser.pinHash) : false;
+        if (!isValid && !isPinValid) {
+          setAuthError('Credencial de Administrador incorreta.');
+          setIsDeleting(false);
+          return;
+        }
+      }
+
       await onConfirm();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao confirmar exclusão:', err);
+      setAuthError(err.message || 'Erro ao zerar dados.');
       setIsDeleting(false);
     }
   };
+
+  const isFormFilled = confirmationText === confirmationPhrase && passwordText.length >= 4;
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
@@ -908,16 +928,23 @@ function ResetDataModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; onClo
             <li>Todos os clientes, fornecedores e compras</li>
           </ul>
 
+          {authError && (
+            <div className="p-2.5 bg-red-100 border border-red-300 rounded-lg text-red-700 text-xs font-semibold">
+              {authError}
+            </div>
+          )}
+
           <div className="space-y-3 pt-1">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">1. PIN de Administrador (Padrão: 1234):</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                1. Senha ou PIN do Administrador:
+              </label>
               <input
                 type="password"
-                maxLength={6}
-                value={pinText}
-                onChange={(e) => setPinText(e.target.value)}
-                placeholder="Digite o PIN"
-                className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg font-mono text-center font-bold text-base focus:border-red-500 focus:outline-none"
+                value={passwordText}
+                onChange={(e) => setPasswordText(e.target.value)}
+                placeholder="Digite sua senha ou PIN de Administrador"
+                className="w-full px-3 py-2 border-2 border-slate-300 rounded-lg font-mono text-center font-bold text-sm focus:border-red-500 focus:outline-none"
               />
             </div>
 
@@ -947,7 +974,7 @@ function ResetDataModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; onClo
             <button
               type="button"
               onClick={handleConfirmClick}
-              disabled={!isConfirmed || isDeleting}
+              disabled={!isFormFilled || isDeleting}
               className="bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-all flex items-center space-x-2"
             >
               <Trash2 className="w-4 h-4" />

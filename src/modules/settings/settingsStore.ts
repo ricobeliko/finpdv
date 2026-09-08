@@ -22,12 +22,12 @@ interface SettingsState {
 }
 
 const defaultSettings: StoreSettings = {
-  companyName: 'Mercearia Uber',
-  tradeName: 'Mercearia Uber',
-  cnpj: '12.345.678/0001-90',
-  stateRegistration: '123.456.789.000',
-  phone: '(11) 98765-4321',
-  address: 'Rua do Comércio, 123 - Centro',
+  companyName: 'FinPDV',
+  tradeName: 'FinPDV',
+  cnpj: '',
+  stateRegistration: '',
+  phone: '',
+  address: '',
   receiptFooterMessage: 'Obrigado pela preferência! Volte sempre.',
   printerName: '',
   printerWidthMm: 80,
@@ -37,7 +37,7 @@ const defaultSettings: StoreSettings = {
   autoBackupMonthly: true,
   cosmosEnabled: false,
   cosmosToken: '',
-  cosmosUserAgent: 'MercadoPOS',
+  cosmosUserAgent: 'FinPDV',
 };
 
 function triggerBrowserDownload(filename: string, content: string) {
@@ -232,12 +232,12 @@ export const useSettingsStore = create<SettingsState>()(
         if (settings.autoBackupMonthly === false) return;
 
         const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
-        const lastMonth = localStorage.getItem('mercado_pos_last_monthly_backup');
+        const lastMonth = localStorage.getItem('finpdv_last_monthly_backup');
 
         if (lastMonth !== currentMonth) {
           try {
             await get().createBackup('AUTOMATIC');
-            localStorage.setItem('mercado_pos_last_monthly_backup', currentMonth);
+            localStorage.setItem('finpdv_last_monthly_backup', currentMonth);
           } catch (err) {
             console.warn('Erro no backup automático mensal:', err);
           }
@@ -255,7 +255,7 @@ export const useSettingsStore = create<SettingsState>()(
           } catch (_) {}
 
           await resetDatabaseDb();
-          localStorage.removeItem('mercado_pos_active_session_data');
+          localStorage.removeItem('finpdv_active_session_data');
 
           useProductStore.setState({ products: [], movements: [] });
           useCashStore.setState({ currentSession: null, sessions: [], movements: [] });
@@ -271,7 +271,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
     }),
     {
-      name: 'mercado_pos_settings_storage',
+      name: 'finpdv_settings_storage',
       partialize: (state) => ({
         settings: state.settings,
         backups: state.backups,

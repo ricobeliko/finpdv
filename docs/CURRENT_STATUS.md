@@ -21,7 +21,9 @@
 * `npx tsc --noEmit` — `PASS (0 erros)`
 * `npm run build` — `PASS (Bundle de produção OK)`
 * `cargo check --manifest-path src-tauri/Cargo.toml` — `PASS`
-* `cargo test --manifest-path src-tauri/Cargo.toml` — `PASS (35/35 testes)`
+* `cargo test --manifest-path src-tauri/Cargo.toml` — `PASS (47/47 testes: 35 transações + 12 segurança/RBAC/Argon2id/anti-replay)`
+* `Chave Pública FinPDV Updater` — `CONFIGURADA (tauri.conf.json)`
+* `Isolamento AppData / SQLite` — `PASS (com.finpdv.app / finpdv.db)`
 
 ---
 

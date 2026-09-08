@@ -18,19 +18,22 @@
 - [x] **Fase 5 — Manutenção e Suporte Efêmero:**
   - Painel de Manutenção com `PRAGMA integrity_check`, estatísticas e logs de auditoria.
   - Desafio e tokens temporários para o modo suporte.
+- [x] **Fase 6 — Gate de Segurança, Autenticação Blindada e Chave Exclusiva do Updater:**
+  - Par exclusivo de chaves do FinPDV gerado via `tauri signer generate`.
+  - Chave pública configurada em `tauri.conf.json`.
+  - Chave privada protegida fora do versionamento e do repositório Git.
+  - RBAC imperativo na camada de domínio/banco de dados (`checkPermissionOrThrow`).
+  - Troca de operador protegida por validação obrigatória de senha/PIN via Argon2id.
+  - Suíte automatizada com 47 testes unitários (12 de segurança/RBAC/anti-replay) 100% verdes.
 
 ---
 
 ## 2. Próximas Fases Planejadas
 
-### Fase 6 — Geração de Chaves de Assinatura e Ativação do Novo Updater
-- Gerar novo par de chaves públicas/privadas exclusivo do FinPDV via `tauri signer generate`.
-- Configurar a chave pública em `tauri.conf.json` e a chave privada como secret nos workflows do GitHub Actions (`TAURI_SIGNING_PRIVATE_KEY`).
-- Configurar o endpoint definitivo: `https://github.com/ricobeliko/finpdv/releases/latest/download/latest.json`.
-
 ### Fase 7 — Suporte Criptográfico com Assinatura Ed25519
-- Incorporar a chave pública de suporte no binário do FinPDV.
-- Implementar verificação de autorizações remotas assinadas pela equipe de engenharia para desbloqueio de ferramentas de telemetria avançada em campo.
+- Desenvolver ferramenta externa de engenharia fora da aplicação para assinatura de autorizações de suporte.
+- Incorporar a chave pública Ed25519 no binário do FinPDV.
+- Implementar verificação de tokens assinados com challenge, installation_id e timestamp para desbloqueio do papel `FINPDV_SUPPORT` (atualmente `NOT_PRODUCTION_READY`).
 
 ### Fase 8 — Módulo de Sincronização em Segundo Plano (Opcional / Futuro)
 - Para clientes com múltiplos caixas em uma mesma rede local (LAN), implementar replicação ponto-a-ponto ou via servidor de loja local sem exigir conexão obrigatória com a internet.

@@ -340,6 +340,364 @@ mod tests {
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_clean_install_onboarding_and_persistence_flow() {
+        let temp_dir = std::env::temp_dir().join(format!("finpdv_clean_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join("test_finpdv.db");
+        let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy().replace('\\', "/"));
+
+        tauri::async_runtime::block_on(async {
+            use sqlx::sqlite::SqlitePoolOptions;
+            use crate::security::{hash_credential_argon2, verify_credential_argon2};
+            use crate::sale_transaction::{
+                execute_sale_transaction, SaleTransactionPayload, SaleItemPayload, SalePaymentPayload
+            };
+
+            // 1. INSTALAÇÃO LIMPA: Inicia banco zerado e aplica o schema do FinPDV v1.0.0
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect(&db_url)
+                .await
+                .expect("Falha ao abrir banco SQLite limpo");
+
+            sqlx::query(
+                "CREATE TABLE installation_info (
+                    installation_id TEXT PRIMARY KEY,
+                    is_configured INTEGER NOT NULL DEFAULT 0,
+                    configured_at TEXT,
+                    version TEXT NOT NULL DEFAULT '1.0.0'
+                );
+                CREATE TABLE business_profile (
+                    id TEXT PRIMARY KEY,
+                    legal_name TEXT NOT NULL,
+                    trade_name TEXT NOT NULL,
+                    cnpj TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE stores (
+                    id TEXT PRIMARY KEY,
+                    code TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE terminals (
+                    id TEXT PRIMARY KEY,
+                    store_id TEXT NOT NULL,
+                    terminal_number TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (store_id) REFERENCES stores(id)
+                );
+                CREATE TABLE users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    pin_hash TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE cash_sessions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    user_name TEXT NOT NULL,
+                    is_open INTEGER NOT NULL DEFAULT 1,
+                    opened_at TEXT NOT NULL,
+                    closed_at TEXT,
+                    initial_amount_cents INTEGER NOT NULL,
+                    sales_cash_cents INTEGER DEFAULT 0,
+                    supplies_cents INTEGER DEFAULT 0,
+                    withdraws_cents INTEGER DEFAULT 0,
+                    expected_drawer_cents INTEGER DEFAULT 0,
+                    counted_cents INTEGER DEFAULT 0,
+                    difference_cents INTEGER DEFAULT 0,
+                    notes TEXT
+                );
+                CREATE TABLE products (
+                    id TEXT PRIMARY KEY,
+                    internal_code TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    category_id TEXT,
+                    unit_measure TEXT NOT NULL DEFAULT 'UN',
+                    cost_price_cents INTEGER NOT NULL DEFAULT 0,
+                    retail_price_cents INTEGER NOT NULL,
+                    current_stock REAL NOT NULL DEFAULT 0,
+                    min_stock REAL NOT NULL DEFAULT 0,
+                    max_stock REAL,
+                    is_weighable INTEGER NOT NULL DEFAULT 0,
+                    is_open_price INTEGER NOT NULL DEFAULT 0,
+                    is_active INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE TABLE inventory_movements (
+                    id TEXT PRIMARY KEY,
+                    product_id TEXT NOT NULL,
+                    product_name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    quantity REAL NOT NULL,
+                    previous_balance REAL NOT NULL,
+                    new_balance REAL NOT NULL,
+                    cost_price_cents INTEGER NOT NULL,
+                    user_name TEXT NOT NULL,
+                    notes TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE customers (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    document TEXT,
+                    phone TEXT,
+                    address TEXT,
+                    notes TEXT,
+                    total_spent_cents INTEGER NOT NULL DEFAULT 0,
+                    purchases_count INTEGER NOT NULL DEFAULT 0,
+                    last_purchase_date TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE sales (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT,
+                    user_id TEXT,
+                    customer_id TEXT,
+                    customer_name TEXT,
+                    subtotal_cents INTEGER NOT NULL,
+                    discount_cents INTEGER NOT NULL DEFAULT 0,
+                    total_cents INTEGER NOT NULL,
+                    change_cents INTEGER NOT NULL DEFAULT 0,
+                    payment_method TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'COMPLETED',
+                    cancelled_at TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE sale_items (
+                    id TEXT PRIMARY KEY,
+                    sale_id TEXT NOT NULL,
+                    product_id TEXT NOT NULL,
+                    product_name TEXT NOT NULL,
+                    quantity REAL NOT NULL,
+                    unit_price_cents INTEGER NOT NULL,
+                    cost_price_cents INTEGER NOT NULL,
+                    total_cents INTEGER NOT NULL,
+                    FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+                );
+                CREATE TABLE sale_payments (
+                    id TEXT PRIMARY KEY,
+                    sale_id TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+                );
+                CREATE TABLE cash_movements (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    reason TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES cash_sessions(id) ON DELETE CASCADE
+                );"
+            )
+            .execute(&pool)
+            .await
+            .expect("Falha ao criar schema limpo do FinPDV");
+
+            // 2. ONBOARDING: Criação de Empresa, Loja, Terminal e primeiro CLIENT_ADMIN
+            let inst_id = "finpdv-inst-homolog-100";
+            sqlx::query("INSERT INTO installation_info (installation_id, is_configured, configured_at, version) VALUES ($1, 1, '2026-09-08T10:00:00Z', '1.0.0')")
+                .bind(inst_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            let biz_id = "biz-matriz-01";
+            sqlx::query("INSERT INTO business_profile (id, legal_name, trade_name, cnpj, is_active, created_at) VALUES ($1, 'FinPDV Comércio Ltda', 'FinPDV Matriz', '12.345.678/0001-90', 1, '2026-09-08T10:00:00Z')")
+                .bind(biz_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            let store_id = "store-matriz-01";
+            sqlx::query("INSERT INTO stores (id, code, name, is_active, created_at) VALUES ($1, '001', 'Loja Matriz Centro', 1, '2026-09-08T10:00:00Z')")
+                .bind(store_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            let term_id = "term-caixa-01";
+            sqlx::query("INSERT INTO terminals (id, store_id, terminal_number, name, is_active, created_at) VALUES ($1, $2, '01', 'Terminal Caixa 01', 1, '2026-09-08T10:00:00Z')")
+                .bind(term_id)
+                .bind(store_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            let admin_pw_hash = hash_credential_argon2("SenhaMestraAdmin2026!").expect("Falha ao gerar hash Argon2id");
+            let admin_id = "usr-admin-01";
+            sqlx::query("INSERT INTO users (id, username, full_name, role, password_hash, pin_hash, is_active, created_at) VALUES ($1, 'admin', 'Administrador FinPDV', 'CLIENT_ADMIN', $2, NULL, 1, '2026-09-08T10:00:00Z')")
+                .bind(admin_id)
+                .bind(&admin_pw_hash)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // 3. LOGIN ADMIN: Valida autenticação do primeiro CLIENT_ADMIN com Argon2id
+            let pw_match = verify_credential_argon2("SenhaMestraAdmin2026!", &admin_pw_hash);
+            assert!(pw_match, "Senha do primeiro CLIENT_ADMIN deve ser validada com sucesso");
+
+            // 4. ABERTURA DE CAIXA: Operador abre turno com suprimento de R$ 100,00 (10.000 cents)
+            let session_id = "sess-20260908-01";
+            sqlx::query("INSERT INTO cash_sessions (id, user_id, user_name, is_open, opened_at, closed_at, initial_amount_cents, expected_drawer_cents) VALUES ($1, $2, 'Administrador FinPDV', 1, '2026-09-08T10:05:00Z', NULL, 10000, 10000)")
+                .bind(session_id)
+                .bind(admin_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // Cadastra produto de teste com 50 unidades no estoque
+            let prod_id = "prod-arroz-5kg";
+            sqlx::query("INSERT INTO products (id, internal_code, name, category_id, unit_measure, cost_price_cents, retail_price_cents, current_stock, min_stock, max_stock, is_weighable, is_open_price, is_active) VALUES ($1, '7891234567890', 'Arroz Nobre 5kg', NULL, 'UN', 1800, 2500, 50.0, 5.0, 100.0, 0, 0, 1)")
+                .bind(prod_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // 5. VENDA DE TESTE: Executa transação global atômica nativa Rust
+            let sale_id = "CUPOM-20260908-1001";
+            let sale_payload = SaleTransactionPayload {
+                id: sale_id.to_string(),
+                session_id: Some(session_id.to_string()),
+                user_id: Some(admin_id.to_string()),
+                user_name: Some("Administrador FinPDV".to_string()),
+                customer_id: None,
+                customer_name: None,
+                subtotal_cents: 2500,
+                discount_cents: 0,
+                total_cents: 2500,
+                change_cents: 0,
+                payment_method: "DINHEIRO".to_string(),
+                status: "COMPLETED".to_string(),
+                cancelled_at: None,
+                created_at: "2026-09-08T10:10:00Z".to_string(),
+                items: vec![SaleItemPayload {
+                    id: "item-01".to_string(),
+                    product_id: prod_id.to_string(),
+                    product_name: "Arroz Nobre 5kg".to_string(),
+                    quantity: 1.0,
+                    unit_price_cents: 2500,
+                    cost_price_cents: 1800,
+                    total_cents: 2500,
+                }],
+                payments: vec![SalePaymentPayload {
+                    id: "pay-01".to_string(),
+                    method: "DINHEIRO".to_string(),
+                    amount_cents: 2500,
+                }],
+            };
+
+            execute_sale_transaction(&pool, &sale_payload)
+                .await
+                .expect("Transação atômica da venda de teste deve ter sucesso");
+
+            // Verifica estoque decrementado (50 - 1 = 49)
+            let (stock,): (f64,) = sqlx::query_as("SELECT current_stock FROM products WHERE id = $1")
+                .bind(prod_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(stock, 49.0);
+
+            // 6. FECHAMENTO DE CAIXA: Fechamento com saldo final (10.000 + 2.500 = 12.500 cents)
+            sqlx::query("UPDATE cash_sessions SET is_open = 0, closed_at = '2026-09-08T18:00:00Z', counted_cents = 12500, difference_cents = 0 WHERE id = $1")
+                .bind(session_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // 7. FECHA A CONEXÃO (Simula encerramento do processo do app)
+            pool.close().await;
+        });
+
+        // 8. REINICIAR APLICATIVO: Abre nova conexão ao arquivo de banco existente e valida persistência
+        tauri::async_runtime::block_on(async {
+            use sqlx::sqlite::SqliteConnectOptions;
+            use sqlx::ConnectOptions;
+            use std::str::FromStr;
+
+            let opts = SqliteConnectOptions::from_str(&db_url)
+                .unwrap()
+                .read_only(true);
+            let mut conn = opts.connect().await.unwrap();
+
+            // Integridade física SQLite
+            let (check,): (String,) = sqlx::query_as("PRAGMA integrity_check;")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(check, "ok", "Integridade SQLite deve ser 'ok'");
+
+            // Valida persistência da instalação e versão 1.0.0
+            let (ver, is_conf): (String, i64) = sqlx::query_as("SELECT version, is_configured FROM installation_info LIMIT 1")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(ver, "1.0.0", "Versão persistida no banco deve ser 1.0.0");
+            assert_eq!(is_conf, 1, "Sistema deve permanecer configurado após reinício");
+
+            // Valida persistência do perfil de empresa e terminal
+            let (trade_name,): (String,) = sqlx::query_as("SELECT trade_name FROM business_profile LIMIT 1")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(trade_name, "FinPDV Matriz");
+
+            // Valida persistência do primeiro CLIENT_ADMIN
+            let (usr_role,): (String,) = sqlx::query_as("SELECT role FROM users WHERE username = 'admin'")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(usr_role, "CLIENT_ADMIN");
+
+            // Valida persistência da sessão de caixa fechada
+            let (is_open, counted_bal): (i64, i64) = sqlx::query_as("SELECT is_open, counted_cents FROM cash_sessions LIMIT 1")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(is_open, 0);
+            assert_eq!(counted_bal, 12500);
+
+            // Valida persistência da venda, itens e pagamentos
+            let (sale_total, sale_st): (i64, String) = sqlx::query_as("SELECT total_cents, status FROM sales LIMIT 1")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(sale_total, 2500);
+            assert_eq!(sale_st, "COMPLETED");
+
+            let (item_qty,): (f64,) = sqlx::query_as("SELECT quantity FROM sale_items LIMIT 1")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(item_qty, 1.0);
+
+            let (pay_amt,): (i64,) = sqlx::query_as("SELECT amount_cents FROM sale_payments LIMIT 1")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(pay_amt, 2500);
+        });
+
+        // Limpeza de recursos temporários
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }
+
 
 

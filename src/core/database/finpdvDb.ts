@@ -140,14 +140,14 @@ export async function getInstallationInfoDb(): Promise<InstallationInfo> {
   const newInstallationId = 'finpdv-inst-' + crypto.randomUUID();
   await db.execute(
     'INSERT INTO installation_info (installation_id, is_configured, configured_at, version) VALUES ($1, 0, NULL, $2)',
-    [newInstallationId, '0.2.3']
+    [newInstallationId, '1.0.0']
   );
 
   return {
     installationId: newInstallationId,
     isConfigured: false,
     configuredAt: null,
-    version: '0.2.3'
+    version: '1.0.0'
   };
 }
 
@@ -277,7 +277,7 @@ export async function saveInstallationInfoDb(info: InstallationInfo): Promise<vo
       info.installationId,
       info.isConfigured ? 1 : 0,
       info.configuredAt,
-      info.appVersion || info.version || '0.2.3'
+      info.appVersion || info.version || '1.0.0'
     ]
   );
 }

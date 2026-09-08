@@ -10,17 +10,30 @@ export interface UpdateStatus {
   totalBytes?: number;
 }
 
-// Seguranca: Updater FinPDV desabilitado ate provisionamento de par Minisign exclusivo para ricobeliko/finpdv
-// Jamais faz fallback para ricobeliko/mercado-pos
+export type UpdaterProvider = 'DISABLED' | 'CUSTOM_ENDPOINT';
+
+/**
+ * Governança de Atualizações FinPDV:
+ * Na v1.0.0, o repositório 'ricobeliko/finpdv' é privado. GitHub Releases de repositórios
+ * privados exigem autenticação (PAT/Token). É TERMINANTEMENTE PROIBIDO expor credenciais
+ * do proprietário no aplicativo cliente.
+ * 
+ * Por essa razão, a distribuição da v1.0.0 é feita manualmente via instalador oficial homologado.
+ * O auto-updater permanece desabilitado (AUTO_UPDATER_ENABLED = false).
+ * A infraestrutura e a chave pública Minisign continuam preservadas para fases futuras
+ * quando um endpoint próprio seguro (API FinPDV / CDN controlada) for integrado.
+ */
+export const UPDATER_PROVIDER: UpdaterProvider = 'DISABLED';
+export const AUTO_UPDATER_ENABLED = false;
 export const FINPDV_UPDATER_ACTIVE = false;
 
 let pendingUpdate: Update | null = null;
 
 export async function checkForAppUpdates(onProgress?: (status: UpdateStatus) => void): Promise<UpdateStatus> {
-  if (!FINPDV_UPDATER_ACTIVE) {
+  if (!AUTO_UPDATER_ENABLED || UPDATER_PROVIDER === 'DISABLED') {
     const status: UpdateStatus = {
       state: 'UP_TO_DATE',
-      body: 'FinPDV v0.2.3 — Canal de atualização exclusivo FinPDV aguardando provisionamento de chave Minisign.'
+      body: 'FinPDV v1.0.0 — Canal de atualizações automáticas desabilitado (distribuição manual homologada).'
     };
     if (onProgress) onProgress(status);
     return status;
@@ -136,6 +149,16 @@ export function parseReleaseHighlights(body?: string, version?: string): string[
   // Catálogo de novidades por versão como fallback inteligente
   if (version) {
     const cleanVersion = version.replace(/^v/, '').trim();
+    if (cleanVersion === '1.0.0') {
+      return [
+        'Primeira versão comercial estável FinPDV',
+        'Arquitetura offline-first com banco de dados SQLite nativo isolado',
+        'Motor transacional Rust com integridade financeira e estorno atômico',
+        'Sistema de autenticação com Argon2id nativo, RBAC e auditoria',
+        'Assistente de Onboarding para configuração de Empresa, Loja e Terminal',
+        'Impressão térmica direta de cupons e controle completo de caixa'
+      ];
+    }
     if (cleanVersion === '0.2.2' || cleanVersion === '0.2.1') {
       return [
         'Consulta de produtos via Bluesoft Cosmos por código de barras',

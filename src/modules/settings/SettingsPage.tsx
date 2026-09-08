@@ -71,7 +71,7 @@ export function SettingsPage() {
 
   // Estado do Auto-Updater
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'IDLE' });
-  const [appVersion, setAppVersion] = useState('0.1.1');
+  const [appVersion, setAppVersion] = useState('1.0.0');
 
   useEffect(() => {
     import('@tauri-apps/api/app')

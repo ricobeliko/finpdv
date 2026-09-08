@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FinPDV",
-  "version": "0.2.3",
+  "version": "1.0.0",
   "identifier": "com.finpdv.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -30,9 +30,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZGMzY4MEU5QUQwN0JDN0IKUldSN3ZBZXQ2WUEyL3g0Uk9UZGNGM2szUTJWQ05PdWlvMFlPQ1puSGRUU2Q3TDc0ZFpnbFBTY0EK",
-      "endpoints": [
-        "https://github.com/ricobeliko/finpdv/releases/latest/download/latest.json"
-      ]
+      "endpoints": []
     }
   },
   "bundle": {

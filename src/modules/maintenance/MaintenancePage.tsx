@@ -136,7 +136,7 @@ export const MaintenancePage: React.FC = () => {
             <p className="text-sm font-bold text-white truncate mt-1">
               {installationInfo?.installationId || 'Não registrado'}
             </p>
-            <p className="text-xs text-slate-400 mt-0.5">Versão: {installationInfo?.appVersion || '0.2.3'}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Versão: {installationInfo?.appVersion || '1.0.0'}</p>
           </div>
         </div>
 

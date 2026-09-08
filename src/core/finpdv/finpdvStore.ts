@@ -157,8 +157,8 @@ export const useFinPdvStore = create<FinPdvState>((set, get) => ({
     // 5. Salvar info de instalação
     const installInfo: InstallationInfo = {
       installationId: 'inst_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8),
-      version: '0.2.3',
-      appVersion: '0.2.3',
+      version: '1.0.0',
+      appVersion: '1.0.0',
       isConfigured: true,
       configuredAt: now,
       environment: 'production'

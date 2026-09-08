@@ -9,8 +9,8 @@
 * **Novo Repositório:** `ricobeliko/finpdv` (Remote `origin`)
 * **Repositório Legado:** `ricobeliko/mercado-pos` (Remote `legacy` -> `DISABLED` / Somente Leitura)
 * **Status do Legado:** `LEGACY_TOUCHED: false` (Zero alterações em produção legada)
-* **Versão do Projeto:** `0.2.3`
-* **Release Homologada:** `v0.2.3`
+* **Versão do Projeto:** `1.0.0`
+* **Release Homologada:** `v1.0.0 (Primeira Versão Comercial Estável)`
 * **Working Tree:** `HOMOLOGADO E ISOLADO COMO FINPDV`
 * **CI Remoto (GitHub Actions):** `PASS (100% VERDE)`
 
@@ -153,4 +153,23 @@ A auditoria arquitetural em modo somente leitura mapeou riscos importantes na fi
   * [x] **Assistente de Atualização Flutuante:** `AutoUpdateNotification.tsx` exibe os itens reais de melhorias da versão que está sendo baixada e instalada.
   * [x] **Painel de Configurações:** `SettingsPage.tsx` reflete dinamicamente a lista de novidades da versão disponível sem textos legados fixos.
 * **Status Final:** **RELEASE v0.2.2 PUBLICADA E HOMOLOGADA**
+
+---
+
+## 11. FinPDV v1.0.0 — Primeira Versão Comercial Estável: HOMOLOGAÇÃO
+* **Status:** HOMOLOGAÇÃO PRÉ-RELEASE CONCLUÍDA
+* **Versão Comercial:** `1.0.0`
+* **Governança de Atualização:**
+  * `AUTO_UPDATER_ENABLED = false`
+  * `UPDATER_PROVIDER = 'DISABLED'`
+  * `endpoints = []` (em `tauri.conf.json`)
+  * Repositório `ricobeliko/finpdv` é privado; proibida exposição de credenciais/tokens no cliente.
+  * Distribuição inicial da v1.0.0 via instalador manual homologado (`FinPDV_1.0.0_x64-setup.exe`).
+  * Chave pública Minisign preservada para futuras integrações de CDN/API dedicada.
+  * Análise de arquitetura de update documentada em `docs/UPDATE_DISTRIBUTION.md`.
+* **Segurança e Suporte:**
+  * `FINPDV_SUPPORT = NOT_PRODUCTION_READY` (Inacessível em produção).
+  * `LEGACY_TOUCHED = false` (Zero pushes/commits para `ricobeliko/mercado-pos`).
+  * `DO_NOT_TAG = true` / `DO_NOT_RELEASE = true` (Trava de release respeitada).
+
 

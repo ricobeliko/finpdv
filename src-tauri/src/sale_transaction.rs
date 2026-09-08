@@ -75,11 +75,16 @@ pub async fn execute_sale_transaction(
         .await
         .map_err(|e| format!("Erro ao adquirir conexão do pool: {}", e))?;
 
-    // 3. Configura e valida PRAGMA foreign_keys = ON nesta conexão específica
+    // 3. Configura e valida PRAGMA foreign_keys = ON e busy_timeout = 5000 nesta conexão específica
     sqlx::query("PRAGMA foreign_keys = ON;")
         .execute(&mut *conn)
         .await
         .map_err(|e| format!("Erro ao ativar foreign keys: {}", e))?;
+
+    sqlx::query("PRAGMA busy_timeout = 5000;")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| format!("Erro ao configurar busy_timeout: {}", e))?;
 
     let fk_check: (i64,) = sqlx::query_as("PRAGMA foreign_keys;")
         .fetch_one(&mut *conn)
@@ -381,8 +386,9 @@ pub async fn execute_sale_transaction(
 
 #[tauri::command]
 pub async fn save_sale_transaction(
+    session_state: State<'_, crate::security::SessionState>,
     db_instances: State<'_, tauri_plugin_sql::DbInstances>,
-    sale: SaleTransactionPayload,
+    mut sale: SaleTransactionPayload,
 ) -> Result<(), String> {
     let instances = db_instances.0.read().await;
     let db_pool = instances
@@ -391,7 +397,14 @@ pub async fn save_sale_transaction(
         .ok_or_else(|| "Banco de dados 'sqlite:finpdv.db' não carregado".to_string())?;
 
     match db_pool {
-        tauri_plugin_sql::DbPool::Sqlite(pool) => execute_sale_transaction(pool, &sale).await,
+        tauri_plugin_sql::DbPool::Sqlite(pool) => {
+            let active_sess =
+                crate::security::require_permission(&session_state, pool, "sale.create").await?;
+            sale.user_id = Some(active_sess.user_id);
+            sale.user_name = Some(active_sess.full_name);
+
+            execute_sale_transaction(pool, &sale).await
+        }
         #[allow(unreachable_patterns)]
         _ => Err("Tipo de banco de dados não suportado (esperado SQLite)".into()),
     }

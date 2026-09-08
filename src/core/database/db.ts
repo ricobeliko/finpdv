@@ -25,240 +25,8 @@ export async function getDb(): Promise<Database> {
 
 
 async function initTables(db: Database) {
-  await db.execute('PRAGMA journal_mode = WAL;');
-  await db.execute('PRAGMA foreign_keys = ON;');
-
-  // 1. PRODUTOS E CATEGORIAS
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS categories (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE
-    );
-  `);
-
-  try {
-    const catCount = await db.select<any[]>('SELECT count(*) as count FROM categories');
-    if (!catCount || catCount.length === 0 || catCount[0]?.count === 0) {
-      await db.execute(`INSERT OR IGNORE INTO categories (id, name) VALUES 
-        ('cat-1', 'Mercearia & Grãos'),
-        ('cat-2', 'Bebidas'),
-        ('cat-3', 'Hortifrúti'),
-        ('cat-4', 'Limpeza & Higiene')
-      `);
-    }
-  } catch (_) {}
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS products (
-      id TEXT PRIMARY KEY,
-      internal_code TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL,
-      category_id TEXT,
-      unit_measure TEXT NOT NULL DEFAULT 'UN',
-      cost_price_cents INTEGER NOT NULL DEFAULT 0,
-      retail_price_cents INTEGER NOT NULL,
-      current_stock REAL NOT NULL DEFAULT 0,
-      min_stock REAL NOT NULL DEFAULT 0,
-      max_stock REAL,
-      is_weighable INTEGER NOT NULL DEFAULT 0,
-      is_open_price INTEGER NOT NULL DEFAULT 0,
-      is_active INTEGER NOT NULL DEFAULT 1,
-      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
-    );
-  `);
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS product_barcodes (
-      id TEXT PRIMARY KEY,
-      product_id TEXT NOT NULL,
-      barcode TEXT NOT NULL UNIQUE,
-      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
-    );
-  `);
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS product_tier_prices (
-      id TEXT PRIMARY KEY,
-      product_id TEXT NOT NULL,
-      min_quantity REAL NOT NULL,
-      price_cents INTEGER NOT NULL,
-      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
-    );
-  `);
-
-  // 2. SESSÕES DE CAIXA E MOVIMENTAÇÕES
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS cash_sessions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      user_name TEXT NOT NULL,
-      is_open INTEGER NOT NULL DEFAULT 1,
-      opened_at TEXT NOT NULL,
-      closed_at TEXT,
-      initial_amount_cents INTEGER NOT NULL,
-      sales_cash_cents INTEGER DEFAULT 0,
-      supplies_cents INTEGER DEFAULT 0,
-      withdraws_cents INTEGER DEFAULT 0,
-      expected_drawer_cents INTEGER DEFAULT 0,
-      counted_cents INTEGER DEFAULT 0,
-      difference_cents INTEGER DEFAULT 0,
-      notes TEXT
-    );
-  `);
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS cash_movements (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      type TEXT NOT NULL,
-      amount_cents INTEGER NOT NULL,
-      reason TEXT NOT NULL,
-      timestamp TEXT NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES cash_sessions(id) ON DELETE CASCADE
-    );
-  `);
-
-  // 3. VENDAS
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS sales (
-      id TEXT PRIMARY KEY,
-      session_id TEXT,
-      user_id TEXT,
-      customer_id TEXT,
-      customer_name TEXT,
-      subtotal_cents INTEGER NOT NULL,
-      discount_cents INTEGER NOT NULL DEFAULT 0,
-      total_cents INTEGER NOT NULL,
-      change_cents INTEGER NOT NULL DEFAULT 0,
-      payment_method TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'COMPLETED',
-      cancelled_at TEXT,
-      created_at TEXT NOT NULL
-    );
-  `);
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS sale_items (
-      id TEXT PRIMARY KEY,
-      sale_id TEXT NOT NULL,
-      product_id TEXT NOT NULL,
-      product_name TEXT NOT NULL,
-      quantity REAL NOT NULL,
-      unit_price_cents INTEGER NOT NULL,
-      cost_price_cents INTEGER NOT NULL,
-      total_cents INTEGER NOT NULL,
-      FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
-    );
-  `);
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS sale_payments (
-      id TEXT PRIMARY KEY,
-      sale_id TEXT NOT NULL,
-      method TEXT NOT NULL,
-      amount_cents INTEGER NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
-    );
-  `);
-
-  await db.execute(`
-    CREATE INDEX IF NOT EXISTS idx_sale_payments_sale_id ON sale_payments(sale_id);
-  `);
-
-  // Migrations idempotentes de colunas em sales para bancos existentes
-  try {
-    await db.execute(`ALTER TABLE sales ADD COLUMN status TEXT NOT NULL DEFAULT 'COMPLETED';`);
-  } catch (_) {}
-
-  try {
-    await db.execute(`ALTER TABLE sales ADD COLUMN cancelled_at TEXT;`);
-  } catch (_) {}
-
-  try {
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(status);`);
-  } catch (_) {}
-
-  // 4. MOVIMENTAÇÕES DE ESTOQUE
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS inventory_movements (
-      id TEXT PRIMARY KEY,
-      product_id TEXT NOT NULL,
-      product_name TEXT NOT NULL,
-      type TEXT NOT NULL,
-      quantity REAL NOT NULL,
-      previous_balance REAL NOT NULL,
-      new_balance REAL NOT NULL,
-      cost_price_cents INTEGER NOT NULL,
-      user_name TEXT NOT NULL,
-      notes TEXT,
-      created_at TEXT NOT NULL
-    );
-  `);
-
-  // 5. CLIENTES
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS customers (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      document TEXT,
-      phone TEXT,
-      address TEXT,
-      notes TEXT,
-      total_spent_cents INTEGER NOT NULL DEFAULT 0,
-      purchases_count INTEGER NOT NULL DEFAULT 0,
-      last_purchase_date TEXT,
-      is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL
-    );
-  `);
-
-  // 6. FORNECEDORES
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS suppliers (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      trade_name TEXT,
-      document TEXT NOT NULL,
-      phone TEXT,
-      contact_name TEXT,
-      email TEXT,
-      created_at TEXT NOT NULL
-    );
-  `);
-
-  // 7. COMPRAS / ENTRADAS
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS purchases (
-      id TEXT PRIMARY KEY,
-      order_number TEXT,
-      supplier_id TEXT NOT NULL,
-      supplier_name TEXT NOT NULL,
-      invoice_number TEXT,
-      total_cents INTEGER NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
-    );
-  `);
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS purchase_items (
-      id TEXT PRIMARY KEY,
-      purchase_id TEXT NOT NULL,
-      product_id TEXT NOT NULL,
-      product_name TEXT NOT NULL,
-      internal_code TEXT,
-      unit_measure TEXT NOT NULL DEFAULT 'UN',
-      quantity REAL NOT NULL,
-      unit_cost_cents INTEGER NOT NULL,
-      total_cost_cents INTEGER NOT NULL,
-      FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE
-    );
-  `);
-
-  // Inicializar estrutura comercial, multi-instalação e RBAC do FinPDV
+  // Inicialização DDL executada de forma nativa e isolada no startup em db_bootstrap.rs (Rust)
+  // Sem necessidade de privilégios sql:allow-execute no contexto WebView/Frontend
   await initFinPdvDb(db);
 }
 
@@ -286,18 +54,26 @@ export async function getActiveCashSessionDb(): Promise<{ session: CashSession |
 }
 
 export async function openCashSessionDb(session: CashSession, initialMov: CashMovement) {
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO cash_sessions (id, user_id, user_name, is_open, opened_at, initial_amount_cents, notes) 
-     VALUES ($1, $2, $3, 1, $4, $5, '')`,
-    [session.id, session.userId, session.userName, session.openedAt, session.initialAmountCents]
-  );
-  await db.execute(
-    `INSERT INTO cash_movements (id, session_id, user_id, type, amount_cents, reason, timestamp) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT(id) DO NOTHING`,
-    [initialMov.id, initialMov.sessionId, initialMov.userId, initialMov.type, initialMov.amountCents, initialMov.reason, initialMov.timestamp]
-  );
+  await invoke('db_open_cash_session', {
+    session: {
+      id: session.id,
+      userId: session.userId,
+      userName: session.userName,
+      isOpen: true,
+      openedAt: session.openedAt,
+      initialAmountCents: session.initialAmountCents,
+      notes: ''
+    },
+    initialMov: {
+      id: initialMov.id,
+      sessionId: initialMov.sessionId,
+      userId: initialMov.userId,
+      type: initialMov.type,
+      amountCents: initialMov.amountCents,
+      reason: initialMov.reason,
+      timestamp: initialMov.timestamp
+    }
+  });
 }
 
 export async function insertCashMovementDb(mov: CashMovement) {
@@ -305,36 +81,32 @@ export async function insertCashMovementDb(mov: CashMovement) {
     const requiredPerm = mov.type === 'WITHDRAW' ? 'cash.withdraw' : 'cash.supply';
     authService.checkPermissionOrThrow(requiredPerm, 'Movimentação de caixa');
   }
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO cash_movements (id, session_id, user_id, type, amount_cents, reason, timestamp) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT(id) DO UPDATE SET
-       type = excluded.type,
-       amount_cents = excluded.amount_cents,
-       reason = excluded.reason`,
-    [mov.id, mov.sessionId, mov.userId, mov.type, mov.amountCents, mov.reason, mov.timestamp]
-  );
+  await invoke('db_create_cash_movement', {
+    movement: {
+      id: mov.id,
+      sessionId: mov.sessionId,
+      userId: mov.userId,
+      type: mov.type,
+      amountCents: mov.amountCents,
+      reason: mov.reason,
+      timestamp: mov.timestamp
+    }
+  });
 }
 
 export async function closeCashSessionDb(summary: CashClosingSummary) {
-  const db = await getDb();
-  await db.execute(
-    `UPDATE cash_sessions 
-     SET is_open = 0, closed_at = $1, sales_cash_cents = $2, supplies_cents = $3, 
-         withdraws_cents = $4, expected_drawer_cents = $5, counted_cents = $6, difference_cents = $7 
-     WHERE id = $8`,
-    [
-      summary.closedAt,
-      summary.salesCashCents,
-      summary.suppliesCents,
-      summary.withdrawsCents,
-      summary.expectedDrawerCents,
-      summary.countedCents,
-      summary.differenceCents,
-      summary.sessionId
-    ]
-  );
+  await invoke('db_close_cash_session', {
+    summary: {
+      sessionId: summary.sessionId,
+      closedAt: summary.closedAt,
+      salesCashCents: summary.salesCashCents,
+      suppliesCents: summary.suppliesCents,
+      withdrawsCents: summary.withdrawsCents,
+      expectedDrawerCents: summary.expectedDrawerCents,
+      countedCents: summary.countedCents,
+      differenceCents: summary.differenceCents
+    }
+  });
 }
 
 export async function loadClosedCashSessionsDb(): Promise<CashClosingSummary[]> {
@@ -377,44 +149,21 @@ export async function getCashSessionsDb(): Promise<any[]> {
 }
 
 export async function saveCashSessionDb(session: any): Promise<void> {
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO cash_sessions (
-      id, user_id, user_name, is_open, opened_at, closed_at, initial_amount_cents,
-      sales_cash_cents, supplies_cents, withdraws_cents, expected_drawer_cents,
-      counted_cents, difference_cents, notes
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-    ON CONFLICT(id) DO UPDATE SET
-      user_id = excluded.user_id,
-      user_name = excluded.user_name,
-      is_open = excluded.is_open,
-      opened_at = excluded.opened_at,
-      closed_at = excluded.closed_at,
-      initial_amount_cents = excluded.initial_amount_cents,
-      sales_cash_cents = excluded.sales_cash_cents,
-      supplies_cents = excluded.supplies_cents,
-      withdraws_cents = excluded.withdraws_cents,
-      expected_drawer_cents = excluded.expected_drawer_cents,
-      counted_cents = excluded.counted_cents,
-      difference_cents = excluded.difference_cents,
-      notes = excluded.notes`,
-    [
-      session.id,
-      session.userId || 'usr-admin',
-      session.userName || 'Administrador',
-      session.isOpen ? 1 : 0,
-      session.openedAt,
-      session.closedAt || null,
-      session.initialCents ?? session.initialAmountCents ?? 0,
-      session.totalSalesCents ?? session.salesCashCents ?? 0,
-      session.totalSupplementsCents ?? session.suppliesCents ?? 0,
-      session.totalBleedsCents ?? session.withdrawsCents ?? 0,
-      session.expectedCents ?? session.expectedDrawerCents ?? 0,
-      session.finalCents ?? session.countedCents ?? null,
-      session.differenceCents ?? 0,
-      session.notes || ''
-    ]
-  );
+  if (session && !session.isOpen && session.closedAt) {
+    await closeCashSessionDb({
+      sessionId: session.id,
+      openedAt: session.openedAt || new Date().toISOString(),
+      closedAt: session.closedAt,
+      userName: session.userName || '',
+      initialAmountCents: session.initialCents ?? session.initialAmountCents ?? 0,
+      salesCashCents: session.totalSalesCents ?? session.salesCashCents ?? 0,
+      suppliesCents: session.totalSupplementsCents ?? session.suppliesCents ?? 0,
+      withdrawsCents: session.totalBleedsCents ?? session.withdrawsCents ?? 0,
+      expectedDrawerCents: session.expectedCents ?? session.expectedDrawerCents ?? 0,
+      countedCents: session.finalCents ?? session.countedCents ?? 0,
+      differenceCents: session.differenceCents ?? 0
+    });
+  }
 }
 
 export async function getCashMovementsDb(sessionId: string): Promise<any[]> {
@@ -444,29 +193,19 @@ export async function getCashMovementsDb(sessionId: string): Promise<any[]> {
 }
 
 export async function saveCashMovementDb(mov: any): Promise<void> {
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO cash_movements (id, session_id, user_id, type, amount_cents, reason, timestamp)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT(id) DO UPDATE SET
-       type = excluded.type,
-       amount_cents = excluded.amount_cents,
-       reason = excluded.reason`,
-    [
-      mov.id,
-      mov.sessionId,
-      mov.userId || 'usr-admin',
-      mov.type,
-      mov.amountCents ?? mov.amount_cents ?? 0,
-      mov.reason,
-      mov.timestamp
-    ]
-  );
+  await insertCashMovementDb({
+    id: mov.id,
+    sessionId: mov.sessionId,
+    userId: mov.userId || 'usr-admin',
+    type: mov.type,
+    amountCents: mov.amountCents ?? mov.amount_cents ?? 0,
+    reason: mov.reason,
+    timestamp: mov.timestamp
+  });
 }
 
-export async function updateCashMovementDb(id: string, type: string, reason: string): Promise<void> {
-  const db = await getDb();
-  await db.execute('UPDATE cash_movements SET type = $1, reason = $2 WHERE id = $3', [type, reason, id]);
+export async function updateCashMovementDb(_id: string, _type: string, _reason: string): Promise<void> {
+  // Movimentos de caixa são imutáveis por compliance fiscal/contábil
 }
 
 // ============================================================
@@ -692,71 +431,30 @@ export async function saveProductToDb(product: Product): Promise<void> {
       authService.checkPermissionOrThrow('product.edit', 'Salvar/editar produto');
     }
   }
-  const db = await getDb();
 
-  // 1. Salva / Atualiza o produto principal
-  await db.execute(
-    `INSERT INTO products 
-     (id, internal_code, name, category_id, unit_measure, cost_price_cents, retail_price_cents, current_stock, min_stock, is_weighable, is_active) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-     ON CONFLICT(id) DO UPDATE SET
-       internal_code = excluded.internal_code,
-       name = excluded.name,
-       category_id = excluded.category_id,
-       unit_measure = excluded.unit_measure,
-       cost_price_cents = excluded.cost_price_cents,
-       retail_price_cents = excluded.retail_price_cents,
-       current_stock = excluded.current_stock,
-       min_stock = excluded.min_stock,
-       is_weighable = excluded.is_weighable,
-       is_active = excluded.is_active`,
-    [
-      product.id,
-      product.internalCode,
-      product.name,
-      product.categoryId || null,
-      product.unitMeasure,
-      product.costPriceCents,
-      product.retailPriceCents,
-      product.currentStock,
-      product.minStock,
-      product.isWeighable ? 1 : 0,
-      product.isActive ? 1 : 0,
-    ]
-  );
-
-  // 2. Atualiza códigos de barras associados (com validação estrita de duplicidade)
-  await db.execute(`DELETE FROM product_barcodes WHERE product_id = $1`, [product.id]);
-  if (product.barcodes && Array.isArray(product.barcodes)) {
-    for (const b of product.barcodes) {
-      const cleanBarcode = b ? b.trim() : '';
-      if (cleanBarcode) {
-        const existing = await db.select<any[]>(
-          `SELECT product_id FROM product_barcodes WHERE barcode = $1 AND product_id != $2`,
-          [cleanBarcode, product.id]
-        );
-        if (existing && existing.length > 0) {
-          throw new Error(`O código de barras "${cleanBarcode}" já está associado a outro produto.`);
-        }
-
-        await db.execute(
-          `INSERT INTO product_barcodes (id, product_id, barcode) VALUES ($1, $2, $3)`,
-          [`bar-${Date.now()}-${Math.random()}`, product.id, cleanBarcode]
-        );
-      }
+  await invoke('db_save_product', {
+    product: {
+      id: product.id,
+      internalCode: product.internalCode,
+      name: product.name,
+      categoryId: product.categoryId || null,
+      unitMeasure: product.unitMeasure,
+      costPriceCents: product.costPriceCents,
+      retailPriceCents: product.retailPriceCents,
+      currentStock: product.currentStock,
+      minStock: product.minStock,
+      allowFractionalSale: Boolean(product.isWeighable),
+      notes: null,
+      barcodes: product.barcodes || [],
+      tierPrices: (product.tierPrices || []).map(t => ({
+        id: (t as any).id || `tier-${Date.now()}-${Math.random()}`,
+        minQuantity: t.minQuantity,
+        priceCents: t.priceCents
+      })),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     }
-  }
-
-  // 3. Atualiza faixas de preço de atacado
-  await db.execute(`DELETE FROM product_tier_prices WHERE product_id = $1`, [product.id]);
-  if (product.tierPrices && Array.isArray(product.tierPrices)) {
-    for (const t of product.tierPrices) {
-      await db.execute(
-        `INSERT INTO product_tier_prices (id, product_id, min_quantity, price_cents) VALUES ($1, $2, $3, $4)`,
-        [`tier-${Date.now()}-${Math.random()}`, product.id, t.minQuantity, t.priceCents]
-      );
-    }
-  }
+  });
 }
 
 export const saveProductDb = saveProductToDb;
@@ -765,45 +463,38 @@ export async function deleteProductDb(id: string): Promise<void> {
   if (authService.getCurrentUser()) {
     authService.checkPermissionOrThrow('product.delete', 'Excluir produto');
   }
-  const db = await getDb();
-  await db.execute('DELETE FROM products WHERE id = $1', [id]);
+  await invoke('db_delete_product', { id });
 }
 
 export async function updateStockDb(productId: string, newStock: number): Promise<void> {
   if (authService.getCurrentUser()) {
     authService.checkPermissionOrThrow('stock.edit', 'Ajustar saldo de estoque');
   }
-  const db = await getDb();
-  await db.execute(`UPDATE products SET current_stock = $1 WHERE id = $2`, [newStock, productId]);
+  await invoke('db_update_stock', { productId, newStock });
 }
 
 export async function insertMovementDb(movement: InventoryMovement): Promise<void> {
   if (authService.getCurrentUser()) {
     authService.checkPermissionOrThrow('stock.edit', 'Registrar movimentação de estoque');
   }
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO inventory_movements 
-     (id, product_id, product_name, type, quantity, previous_balance, new_balance, cost_price_cents, user_name, notes, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-    [
-      movement.id,
-      movement.productId,
-      movement.productName,
-      movement.type,
-      movement.quantity,
-      movement.previousBalance,
-      movement.newBalance,
-      movement.costPriceCents,
-      movement.userName,
-      movement.notes,
-      movement.createdAt,
-    ]
-  );
+  await invoke('db_insert_inventory_movement', {
+    movement: {
+      id: movement.id,
+      productId: movement.productId,
+      productName: movement.productName,
+      type: movement.type,
+      quantity: movement.quantity,
+      previousStock: movement.previousBalance,
+      newStock: movement.newBalance,
+      costPriceCents: movement.costPriceCents,
+      operatorName: movement.userName || null,
+      notes: movement.notes || null,
+      createdAt: movement.createdAt
+    }
+  });
 }
 
 export async function importNexCsv(csvContent: string): Promise<number> {
-  const db = await getDb();
   const lines = csvContent.split(/\r?\n/);
   let count = 0;
 
@@ -827,25 +518,22 @@ export async function importNexCsv(csvContent: string): Promise<number> {
     const prodId = `prod-nex-${Date.now()}-${i}`;
 
     try {
-      await db.execute(
-        `INSERT INTO products 
-         (id, internal_code, name, cost_price_cents, retail_price_cents, current_stock) 
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT(id) DO UPDATE SET
-           internal_code = excluded.internal_code,
-           name = excluded.name,
-           cost_price_cents = excluded.cost_price_cents,
-           retail_price_cents = excluded.retail_price_cents,
-           current_stock = excluded.current_stock`,
-        [prodId, code, name, costCents, retailCents, stock]
-      );
-
-      if (barcode) {
-        await db.execute(
-          `INSERT OR IGNORE INTO product_barcodes (id, product_id, barcode) VALUES ($1, $2, $3)`,
-          [`bar-${Date.now()}-${i}`, prodId, barcode]
-        );
-      }
+      await saveProductToDb({
+        id: prodId,
+        internalCode: code,
+        name,
+        categoryId: '',
+        costPriceCents: costCents,
+        retailPriceCents: retailCents,
+        currentStock: stock,
+        minStock: 0,
+        maxStock: 0,
+        unitMeasure: 'UN',
+        isWeighable: false,
+        isActive: true,
+        barcodes: barcode ? [barcode] : [],
+        tierPrices: []
+      });
       count++;
     } catch (err) {
       console.error(`Erro ao importar item ${name}:`, err);
@@ -855,31 +543,9 @@ export async function importNexCsv(csvContent: string): Promise<number> {
   return count;
 }
 
-// ZERA 100% DE TODAS AS TABELAS DO BANCO DE DADOS
+// ZERA 100% DE TODAS AS TABELAS DO BANCO DE DADOS VIA BACKEND RUST AUTORIZADO
 export async function resetDatabaseDb(): Promise<void> {
-  const db = await getDb();
-  const tables = [
-    'products',
-    'product_barcodes',
-    'product_tier_prices',
-    'categories',
-    'sales',
-    'sale_items',
-    'cash_sessions',
-    'cash_movements',
-    'inventory_movements',
-    'customers',
-    'clients',
-    'purchases',
-    'purchase_items',
-    'suppliers'
-  ];
-
-  for (const table of tables) {
-    try {
-      await db.execute(`DELETE FROM ${table}`);
-    } catch (_) {}
-  }
+  await invoke('db_reset_database');
 }
 
 // ============================================================
@@ -898,17 +564,16 @@ export async function loadCategoriesDb(): Promise<Category[]> {
 }
 
 export async function saveCategoryDb(category: Category): Promise<void> {
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO categories (id, name) VALUES ($1, $2)
-     ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
-    [category.id, category.name]
-  );
+  await invoke('db_save_category', {
+    category: {
+      id: category.id,
+      name: category.name
+    }
+  });
 }
 
 export async function deleteCategoryDb(id: string): Promise<void> {
-  const db = await getDb();
-  await db.execute('DELETE FROM categories WHERE id = $1', [id]);
+  await invoke('db_delete_category', { id });
 }
 
 // ============================================================
@@ -939,39 +604,24 @@ export async function loadCustomersDb(): Promise<Customer[]> {
 }
 
 export async function saveCustomerDb(c: Customer): Promise<void> {
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO customers (id, name, document, phone, address, notes, total_spent_cents, purchases_count, last_purchase_date, is_active, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-     ON CONFLICT(id) DO UPDATE SET
-       name = excluded.name,
-       document = excluded.document,
-       phone = excluded.phone,
-       address = excluded.address,
-       notes = excluded.notes,
-       total_spent_cents = excluded.total_spent_cents,
-       purchases_count = excluded.purchases_count,
-       last_purchase_date = excluded.last_purchase_date,
-       is_active = excluded.is_active`,
-    [
-      c.id,
-      c.name,
-      c.document,
-      c.phone,
-      c.address,
-      c.notes,
-      c.totalSpentCents || 0,
-      c.purchasesCount || 0,
-      c.lastPurchaseDate || null,
-      c.isActive ? 1 : 0,
-      c.createdAt || new Date().toLocaleDateString('pt-BR')
-    ]
-  );
+  await invoke('db_save_customer', {
+    customer: {
+      id: c.id,
+      name: c.name,
+      document: c.document || null,
+      phone: c.phone || null,
+      email: null,
+      address: c.address || null,
+      totalSpentCents: c.totalSpentCents || 0,
+      purchasesCount: c.purchasesCount || 0,
+      lastPurchaseDate: c.lastPurchaseDate || null,
+      createdAt: c.createdAt || new Date().toISOString()
+    }
+  });
 }
 
 export async function deleteCustomerDb(id: string): Promise<void> {
-  const db = await getDb();
-  await db.execute('DELETE FROM customers WHERE id = $1', [id]);
+  await invoke('db_delete_customer', { id });
 }
 
 // ============================================================
@@ -999,33 +649,24 @@ export async function loadSuppliersDb(): Promise<Supplier[]> {
 }
 
 export async function saveSupplierDb(s: Supplier): Promise<void> {
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO suppliers (id, company_name, trade_name, document, phone, contact_name, email, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     ON CONFLICT(id) DO UPDATE SET
-       company_name = excluded.company_name,
-       trade_name = excluded.trade_name,
-       document = excluded.document,
-       phone = excluded.phone,
-       contact_name = excluded.contact_name,
-       email = excluded.email`,
-    [
-      s.id,
-      s.companyName,
-      s.tradeName,
-      s.document,
-      s.phone,
-      s.contactName,
-      s.email,
-      s.createdAt || new Date().toLocaleDateString('pt-BR')
-    ]
-  );
+  await invoke('db_save_supplier', {
+    supplier: {
+      id: s.id,
+      name: s.companyName,
+      tradeName: s.tradeName || null,
+      document: s.document || null,
+      phone: s.phone || null,
+      email: s.email || null,
+      address: null,
+      contactPerson: s.contactName || null,
+      notes: null,
+      createdAt: s.createdAt || new Date().toISOString()
+    }
+  });
 }
 
 export async function deleteSupplierDb(id: string): Promise<void> {
-  const db = await getDb();
-  await db.execute('DELETE FROM suppliers WHERE id = $1', [id]);
+  await invoke('db_delete_supplier', { id });
 }
 
 // ============================================================
@@ -1072,56 +713,26 @@ export async function loadPurchasesDb(): Promise<Purchase[]> {
 }
 
 export async function savePurchaseDb(p: Purchase): Promise<void> {
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO purchases (id, order_number, supplier_id, supplier_name, invoice_number, total_cents, status, received_at, notes, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-     ON CONFLICT(id) DO UPDATE SET
-       order_number = excluded.order_number,
-       supplier_id = excluded.supplier_id,
-       supplier_name = excluded.supplier_name,
-       invoice_number = excluded.invoice_number,
-       total_cents = excluded.total_cents,
-       status = excluded.status,
-       received_at = excluded.received_at,
-       notes = excluded.notes`,
-    [
-      p.id,
-      p.orderNumber || `COMPRA-${p.id.slice(-4)}`,
-      p.supplierId,
-      p.supplierName,
-      p.invoiceNumber || '',
-      p.totalCents,
-      p.status,
-      p.receivedAt || new Date().toLocaleString('pt-BR'),
-      p.notes || '',
-      p.receivedAt || new Date().toLocaleString('pt-BR')
-    ]
-  );
-
-  if (p.items && p.items.length > 0) {
-    for (const item of p.items) {
-      await db.execute(
-        `INSERT INTO purchase_items (id, purchase_id, product_id, product_name, internal_code, unit_measure, quantity, unit_cost_cents, total_cost_cents)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT(id) DO UPDATE SET
-           quantity = excluded.quantity,
-           unit_cost_cents = excluded.unit_cost_cents,
-           total_cost_cents = excluded.total_cost_cents`,
-        [
-          item.id || `pi-${Date.now()}-${Math.random()}`,
-          p.id,
-          item.productId,
-          item.productName,
-          item.internalCode || '',
-          item.unitMeasure || 'UN',
-          item.quantity,
-          item.unitCostCents,
-          item.totalCostCents
-        ]
-      );
+  await invoke('db_save_purchase', {
+    purchase: {
+      id: p.id,
+      supplierId: p.supplierId || null,
+      invoiceNumber: p.invoiceNumber || null,
+      totalCostCents: p.totalCents,
+      purchasedAt: p.receivedAt || new Date().toISOString(),
+      notes: p.notes || null,
+      items: (p.items || []).map(it => ({
+        id: it.id || `pi-${Date.now()}-${Math.random()}`,
+        purchaseId: p.id,
+        productId: it.productId,
+        productName: it.productName,
+        quantity: it.quantity,
+        unitCostCents: it.unitCostCents,
+        totalCostCents: it.totalCostCents
+      })),
+      createdAt: (p as any).createdAt || p.receivedAt || new Date().toISOString()
     }
-  }
+  });
 }
 
 export async function getSaleItemsDb(saleId: string): Promise<Array<{ productId: string; quantity: number }>> {
@@ -1287,344 +898,7 @@ export async function restoreFullDatabaseDumpDb(dump: FullDatabaseDump): Promise
     throw new Error('Arquivo de backup inválido ou corrompido.');
   }
 
-  const db = await getDb();
-  const d = dump.data;
-
-  // Restaura categorias
-  if (Array.isArray(d.categories)) {
-    for (const c of d.categories) {
-      await db.execute(
-        `INSERT INTO categories (id, name) VALUES ($1, $2)
-         ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
-        [c.id, c.name]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura produtos
-  if (Array.isArray(d.products)) {
-    for (const p of d.products) {
-      await db.execute(
-        `INSERT INTO products (id, internal_code, name, category_id, unit_measure, cost_price_cents, retail_price_cents, current_stock, min_stock, is_weighable, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         ON CONFLICT(id) DO UPDATE SET
-           internal_code = excluded.internal_code,
-           name = excluded.name,
-           category_id = excluded.category_id,
-           unit_measure = excluded.unit_measure,
-           cost_price_cents = excluded.cost_price_cents,
-           retail_price_cents = excluded.retail_price_cents,
-           current_stock = excluded.current_stock,
-           min_stock = excluded.min_stock,
-           is_weighable = excluded.is_weighable,
-           is_active = excluded.is_active`,
-        [
-          p.id,
-          p.internal_code,
-          p.name,
-          p.category_id || null,
-          p.unit_measure || 'UN',
-          p.cost_price_cents || 0,
-          p.retail_price_cents,
-          p.current_stock || 0,
-          p.min_stock || 0,
-          p.is_weighable ? 1 : 0,
-          p.is_active ? 1 : 0
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura códigos de barra
-  if (Array.isArray(d.productBarcodes)) {
-    for (const b of d.productBarcodes) {
-      await db.execute(
-        `INSERT INTO product_barcodes (id, product_id, barcode) VALUES ($1, $2, $3)
-         ON CONFLICT(id) DO NOTHING`,
-        [b.id, b.product_id, b.barcode]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura preços por faixa
-  if (Array.isArray(d.productTierPrices)) {
-    for (const t of d.productTierPrices) {
-      await db.execute(
-        `INSERT INTO product_tier_prices (id, product_id, min_quantity, price_cents) VALUES ($1, $2, $3, $4)
-         ON CONFLICT(id) DO NOTHING`,
-        [t.id, t.product_id, t.min_quantity, t.price_cents]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura sessões de caixa
-  if (Array.isArray(d.cashSessions)) {
-    for (const s of d.cashSessions) {
-      await db.execute(
-        `INSERT INTO cash_sessions (id, user_id, user_name, is_open, opened_at, closed_at, initial_amount_cents, sales_cash_cents, supplies_cents, withdraws_cents, expected_drawer_cents, counted_cents, difference_cents, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-         ON CONFLICT(id) DO UPDATE SET
-           user_id = excluded.user_id,
-           user_name = excluded.user_name,
-           is_open = excluded.is_open,
-           opened_at = excluded.opened_at,
-           closed_at = excluded.closed_at,
-           initial_amount_cents = excluded.initial_amount_cents,
-           sales_cash_cents = excluded.sales_cash_cents,
-           supplies_cents = excluded.supplies_cents,
-           withdraws_cents = excluded.withdraws_cents,
-           expected_drawer_cents = excluded.expected_drawer_cents,
-           counted_cents = excluded.counted_cents,
-           difference_cents = excluded.difference_cents,
-           notes = excluded.notes`,
-        [
-          s.id,
-          s.user_id,
-          s.user_name,
-          s.is_open,
-          s.opened_at,
-          s.closed_at,
-          s.initial_amount_cents,
-          s.sales_cash_cents,
-          s.supplies_cents,
-          s.withdraws_cents,
-          s.expected_drawer_cents,
-          s.counted_cents,
-          s.difference_cents,
-          s.notes
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura movimentações de caixa
-  if (Array.isArray(d.cashMovements)) {
-    for (const m of d.cashMovements) {
-      await db.execute(
-        `INSERT INTO cash_movements (id, session_id, user_id, type, amount_cents, reason, timestamp)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT(id) DO UPDATE SET
-           type = excluded.type,
-           amount_cents = excluded.amount_cents,
-           reason = excluded.reason`,
-        [m.id, m.session_id, m.user_id, m.type, m.amount_cents, m.reason, m.timestamp]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura vendas
-  if (Array.isArray(d.sales)) {
-    for (const s of d.sales) {
-      await db.execute(
-        `INSERT INTO sales (id, session_id, user_id, customer_id, customer_name, subtotal_cents, discount_cents, total_cents, change_cents, payment_method, status, cancelled_at, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-         ON CONFLICT(id) DO UPDATE SET
-           subtotal_cents = excluded.subtotal_cents,
-           discount_cents = excluded.discount_cents,
-           total_cents = excluded.total_cents,
-           change_cents = excluded.change_cents,
-           payment_method = excluded.payment_method,
-           status = excluded.status,
-           cancelled_at = excluded.cancelled_at`,
-        [
-          s.id,
-          s.session_id,
-          s.user_id,
-          s.customer_id,
-          s.customer_name,
-          s.subtotal_cents,
-          s.discount_cents,
-          s.total_cents,
-          s.change_cents,
-          s.payment_method,
-          s.status || 'COMPLETED',
-          s.cancelled_at || null,
-          s.created_at
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura itens de vendas
-  if (Array.isArray(d.saleItems)) {
-    for (const si of d.saleItems) {
-      await db.execute(
-        `INSERT INTO sale_items (id, sale_id, product_id, product_name, quantity, unit_price_cents, cost_price_cents, total_cents)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT(id) DO UPDATE SET
-           quantity = excluded.quantity,
-           total_cents = excluded.total_cents`,
-        [
-          si.id,
-          si.sale_id,
-          si.product_id,
-          si.product_name,
-          si.quantity,
-          si.unit_price_cents,
-          si.cost_price_cents,
-          si.total_cents
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura pagamentos de vendas
-  if (Array.isArray(d.salePayments)) {
-    for (const p of d.salePayments) {
-      await db.execute(
-        `INSERT INTO sale_payments (id, sale_id, method, amount_cents, created_at)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT(id) DO NOTHING`,
-        [
-          p.id,
-          p.sale_id,
-          p.method,
-          p.amount_cents,
-          p.created_at || new Date().toISOString()
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura movimentações de estoque
-  if (Array.isArray(d.inventoryMovements)) {
-    for (const im of d.inventoryMovements) {
-      await db.execute(
-        `INSERT INTO inventory_movements (id, product_id, product_name, type, quantity, previous_balance, new_balance, cost_price_cents, user_name, notes, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         ON CONFLICT(id) DO NOTHING`,
-        [
-          im.id,
-          im.product_id,
-          im.product_name,
-          im.type,
-          im.quantity,
-          im.previous_balance,
-          im.new_balance,
-          im.cost_price_cents,
-          im.user_name,
-          im.notes,
-          im.created_at
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura clientes
-  if (Array.isArray(d.customers)) {
-    for (const cust of d.customers) {
-      await db.execute(
-        `INSERT INTO customers (id, name, document, phone, address, notes, total_spent_cents, purchases_count, last_purchase_date, is_active, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name,
-           document = excluded.document,
-           phone = excluded.phone,
-           address = excluded.address,
-           notes = excluded.notes,
-           total_spent_cents = excluded.total_spent_cents,
-           purchases_count = excluded.purchases_count,
-           last_purchase_date = excluded.last_purchase_date,
-           is_active = excluded.is_active`,
-        [
-          cust.id,
-          cust.name,
-          cust.document,
-          cust.phone,
-          cust.address,
-          cust.notes,
-          cust.total_spent_cents,
-          cust.purchases_count,
-          cust.last_purchase_date,
-          cust.is_active,
-          cust.created_at
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura fornecedores
-  if (Array.isArray(d.suppliers)) {
-    for (const sup of d.suppliers) {
-      await db.execute(
-        `INSERT INTO suppliers (id, company_name, trade_name, document, phone, contact_name, email, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT(id) DO UPDATE SET
-           company_name = excluded.company_name,
-           trade_name = excluded.trade_name,
-           document = excluded.document,
-           phone = excluded.phone,
-           contact_name = excluded.contact_name,
-           email = excluded.email`,
-        [
-          sup.id,
-          sup.company_name,
-          sup.trade_name,
-          sup.document,
-          sup.phone,
-          sup.contact_name,
-          sup.email,
-          sup.created_at
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura compras
-  if (Array.isArray(d.purchases)) {
-    for (const pur of d.purchases) {
-      await db.execute(
-        `INSERT INTO purchases (id, order_number, supplier_id, supplier_name, invoice_number, total_cents, status, received_at, notes, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT(id) DO UPDATE SET
-           order_number = excluded.order_number,
-           supplier_id = excluded.supplier_id,
-           supplier_name = excluded.supplier_name,
-           invoice_number = excluded.invoice_number,
-           total_cents = excluded.total_cents,
-           status = excluded.status,
-           received_at = excluded.received_at,
-           notes = excluded.notes`,
-        [
-          pur.id,
-          pur.order_number,
-          pur.supplier_id,
-          pur.supplier_name,
-          pur.invoice_number,
-          pur.total_cents,
-          pur.status,
-          pur.received_at,
-          pur.notes,
-          pur.created_at
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  // Restaura itens de compras
-  if (Array.isArray(d.purchaseItems)) {
-    for (const pi of d.purchaseItems) {
-      await db.execute(
-        `INSERT INTO purchase_items (id, purchase_id, product_id, product_name, internal_code, unit_measure, quantity, unit_cost_cents, total_cost_cents)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT(id) DO UPDATE SET
-           quantity = excluded.quantity,
-           unit_cost_cents = excluded.unit_cost_cents,
-           total_cost_cents = excluded.total_cost_cents`,
-        [
-          pi.id,
-          pi.purchase_id,
-          pi.product_id,
-          pi.product_name,
-          pi.internal_code,
-          pi.unit_measure,
-          pi.quantity,
-          pi.unit_cost_cents,
-          pi.total_cost_cents
-        ]
-      ).catch(() => {});
-    }
-  }
-
-  return { success: true, message: 'Restauração concluída com sucesso!' };
+  const dumpJson = JSON.stringify(dump);
+  const message = await invoke<string>('db_restore_database_dump', { dumpJson });
+  return { success: true, message: message || 'Restauração concluída com sucesso!' };
 }

@@ -131,7 +131,7 @@ fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
         start_page_printer(handle);
 
         let mut written: u32 = 0;
-        write_printer(
+        let write_ok = write_printer(
             handle,
             data.as_ptr() as *const std::ffi::c_void,
             data.len() as u32,
@@ -142,6 +142,15 @@ fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
         end_doc_printer(handle);
         close_printer(handle);
         FreeLibrary(spool);
+
+        if write_ok == 0 || written != data.len() as u32 {
+            return Err(format!(
+                "Falha ao enviar dados para a impressora '{}': gravados {} de {} bytes.",
+                printer_name,
+                written,
+                data.len()
+            ));
+        }
 
         Ok(())
     }
@@ -154,6 +163,8 @@ fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
 }
 
 mod cosmos_lookup;
+mod db_bootstrap;
+pub mod db_commands;
 mod sale_cancellation;
 mod sale_transaction;
 pub mod security;
@@ -225,6 +236,14 @@ fn verify_credential(credential: String, hash: String) -> Result<bool, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(security::SessionState::new())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+                let _ = window.unminimize();
+            }
+        }))
         .setup(|app| {
             use tauri::Manager;
             if let Ok(app_data_dir) = app.path().app_data_dir() {
@@ -232,6 +251,25 @@ pub fn run() {
                 if let Err(err) = create_pre_migration_backup_in_dir(&app_data_dir, &version) {
                     eprintln!("Aviso: falha ao criar backup pré-migration: {}", err);
                 }
+
+                let _ = std::fs::create_dir_all(&app_data_dir);
+                let db_path = app_data_dir.join("finpdv.db");
+                let db_str = db_path.to_string_lossy().replace('\\', "/");
+                let db_url = format!("sqlite://{}", db_str);
+
+                tauri::async_runtime::block_on(async {
+                    use sqlx::sqlite::SqliteConnectOptions;
+                    use std::str::FromStr;
+
+                    if let Ok(opts) = SqliteConnectOptions::from_str(&db_url) {
+                        let opts = opts.create_if_missing(true);
+                        if let Ok(pool) = sqlx::SqlitePool::connect_with(opts).await {
+                            if let Err(err) = db_bootstrap::bootstrap_database(&pool).await {
+                                eprintln!("Aviso: falha no bootstrap do banco: {}", err);
+                            }
+                        }
+                    }
+                });
             }
             Ok(())
         })
@@ -251,7 +289,31 @@ pub fn run() {
             sale_cancellation::cancel_sale_transaction,
             cosmos_lookup::lookup_cosmos_gtin,
             hash_credential,
-            verify_credential
+            verify_credential,
+            db_commands::auth_login,
+            db_commands::auth_logout,
+            db_commands::auth_get_session,
+            db_commands::db_save_user,
+            db_commands::db_open_cash_session,
+            db_commands::db_create_cash_movement,
+            db_commands::db_close_cash_session,
+            db_commands::db_save_product,
+            db_commands::db_delete_product,
+            db_commands::db_update_stock,
+            db_commands::db_insert_inventory_movement,
+            db_commands::db_save_category,
+            db_commands::db_delete_category,
+            db_commands::db_save_customer,
+            db_commands::db_delete_customer,
+            db_commands::db_save_supplier,
+            db_commands::db_delete_supplier,
+            db_commands::db_save_purchase,
+            db_commands::db_save_business_profile,
+            db_commands::db_save_store_and_terminal,
+            db_commands::db_save_installation_info,
+            db_commands::db_insert_audit_log,
+            db_commands::db_reset_database,
+            db_commands::db_restore_database_dump
         ])
         .run(tauri::generate_context!())
         .expect("erro ao executar aplicação tauri");

@@ -60,59 +60,44 @@ export const authService = {
       throw new Error(`Muitas tentativas incorretas. Aguarde ${waitSec}s antes de tentar novamente.`);
     }
 
-    const user = await getUserByUsernameDb(trimmedUsername);
+    try {
+      // 2. Autenticação autoritativa via Backend Rust com Argon2id nativo
+      await invoke<{
+        userId: string;
+        username: string;
+        fullName: string;
+        role: RoleType;
+        loggedAt: number;
+      }>('auth_login', {
+        username: trimmedUsername,
+        credential: credentialPlain,
+      });
+    } catch (err: any) {
+      const currentFailures = (attemptInfo?.count || 0) + 1;
+      let blockedUntil = 0;
+      if (currentFailures >= 5) {
+        blockedUntil = now + 30_000;
+      }
+      failedLoginAttempts.set(trimmedUsername, { count: currentFailures, blockedUntil });
 
-    if (!user) {
       await insertAuditLogDb({
         userId: 'ANONYMOUS',
         role: 'OPERATOR',
         action: 'auth.login_failed',
         entity: 'user',
-        details: JSON.stringify({ reason: 'Usuário não encontrado', username: trimmedUsername })
+        details: JSON.stringify({ reason: String(err), username: trimmedUsername, failures: currentFailures })
       });
-      throw new Error('Credenciais inválidas.');
-    }
-
-    if (!user.isActive) {
-      await insertAuditLogDb({
-        userId: user.id,
-        role: user.role,
-        action: 'auth.login_failed',
-        entity: 'user',
-        entityId: user.id,
-        details: JSON.stringify({ reason: 'Usuário inativo', username: trimmedUsername })
-      });
-      throw new Error('Usuário inativo. Contate o administrador.');
-    }
-
-    // 2. Validação por Senha ou por PIN (Argon2id)
-    const isPasswordValid = await this.verifyCredential(credentialPlain, user.passwordHash);
-    const isPinValid = user.pinHash ? await this.verifyCredential(credentialPlain, user.pinHash) : false;
-
-    if (!isPasswordValid && !isPinValid) {
-      const currentFailures = (attemptInfo?.count || 0) + 1;
-      let blockedUntil = 0;
-      if (currentFailures >= 5) {
-        blockedUntil = now + 30_000; // Bloqueio por 30 segundos após 5 falhas
-      }
-      failedLoginAttempts.set(trimmedUsername, { count: currentFailures, blockedUntil });
-
-      await insertAuditLogDb({
-        userId: user.id,
-        role: user.role,
-        action: 'auth.login_failed',
-        entity: 'user',
-        entityId: user.id,
-        details: JSON.stringify({ reason: 'Credencial incorreta', username: trimmedUsername, failures: currentFailures })
-      });
-      throw new Error('Credenciais inválidas.');
+      throw new Error(typeof err === 'string' ? err : err?.message || 'Credenciais inválidas.');
     }
 
     // Sucesso: limpa falhas acumuladas
     failedLoginAttempts.delete(trimmedUsername);
 
-    // Login com sucesso
-    await updateUserLastLoginDb(user.id);
+    const user = await getUserByUsernameDb(trimmedUsername);
+    if (!user) {
+      throw new Error('Usuário autenticado não encontrado no banco local.');
+    }
+
     currentSessionUser = user;
 
     await insertAuditLogDb({
@@ -128,6 +113,11 @@ export const authService = {
   },
 
   async logout(): Promise<void> {
+    try {
+      await invoke('auth_logout');
+    } catch (err) {
+      console.warn('Erro ao limpar sessão no backend:', err);
+    }
     if (currentSessionUser) {
       await insertAuditLogDb({
         userId: currentSessionUser.id,

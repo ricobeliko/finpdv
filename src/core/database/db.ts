@@ -6,13 +6,14 @@ import { CashSession, CashMovement, CashClosingSummary } from '../../modules/cas
 import { Customer } from '../../modules/customers/types';
 import { Supplier, Purchase, PurchaseItem } from '../../modules/purchases/types';
 import { SalePayment } from '../../modules/pos/types';
+import { initFinPdvDb } from './finpdvDb';
 
 let dbInstance: Database | null = null;
 let tablesInitialized = false;
 
 export async function getDb(): Promise<Database> {
   if (!dbInstance) {
-    dbInstance = await Database.load('sqlite:mercado.db');
+    dbInstance = await Database.load('sqlite:finpdv.db');
   }
   if (!tablesInitialized) {
     await initTables(dbInstance);
@@ -256,7 +257,8 @@ async function initTables(db: Database) {
     );
   `);
 
-
+  // Inicializar estrutura comercial, multi-instalação e RBAC do FinPDV
+  await initFinPdvDb(db);
 }
 
 // ============================================================
@@ -1220,7 +1222,7 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
   return {
     version: '1.0.0',
     exportedAt: new Date().toLocaleString('pt-BR'),
-    appName: 'Mercearia Uber POS',
+    appName: 'FinPDV',
     recordsCount: {
       products: products.length,
       categories: categories.length,

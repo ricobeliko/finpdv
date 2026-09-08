@@ -13,12 +13,14 @@ import {
   User,
   Minus,
   Square,
-  X
+  X,
+  Wrench
 } from 'lucide-react';
 import { useUserStore } from '../../modules/users/userStore';
+import { useFinPdvStore } from '../../core/finpdv/finpdvStore';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
-export type ModuleType = 'POS' | 'PRODUCTS' | 'CASH' | 'PURCHASES' | 'CUSTOMERS' | 'REPORTS' | 'USERS' | 'SETTINGS';
+export type ModuleType = 'POS' | 'PRODUCTS' | 'CASH' | 'PURCHASES' | 'CUSTOMERS' | 'REPORTS' | 'USERS' | 'SETTINGS' | 'MAINTENANCE';
 
 interface MenuItemConfig {
   id: ModuleType;
@@ -35,6 +37,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps) {
   const { currentUser } = useUserStore();
+  const { businessProfile, currentTerminal } = useFinPdvStore();
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   const handleMinimize = async () => {
@@ -76,6 +79,7 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
     { id: 'CUSTOMERS', label: 'Clientes', icon: Users },
     { id: 'REPORTS', label: 'Relatórios & Fechamentos', icon: BarChart3 },
     { id: 'SETTINGS', label: 'Configurações & Backup', icon: Settings },
+    { id: 'MAINTENANCE', label: 'Manutenção & Suporte', icon: Wrench },
   ];
 
   return (
@@ -85,12 +89,16 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
         <div data-tauri-drag-region className="flex items-center space-x-3 cursor-default">
           <img 
             src="/icon.png" 
-            alt="Logo Mercearia Uber" 
+            alt="Logo FinPDV" 
             className="w-9 h-9 rounded-xl shadow-md border border-white/20 object-cover pointer-events-none" 
           />
           <div data-tauri-drag-region>
-            <h1 data-tauri-drag-region className="font-bold text-base leading-none tracking-wide text-white">MERCEARIA UBER</h1>
-            <p data-tauri-drag-region className="text-[11px] text-emerald-200 mt-0.5">Sistema de Gestão Comercial e PDV</p>
+            <h1 data-tauri-drag-region className="font-bold text-base leading-none tracking-wide text-white">
+              {businessProfile?.tradeName ? businessProfile.tradeName.toUpperCase() : 'FINPDV'}
+            </h1>
+            <p data-tauri-drag-region className="text-[11px] text-emerald-200 mt-0.5">
+              {currentTerminal?.name ? `${currentTerminal.name} (${currentTerminal.code}) • ` : ''}PDV Comercial Offline
+            </p>
           </div>
         </div>
 
@@ -179,7 +187,7 @@ export function AppLayout({ activeModule, onNavigate, children }: AppLayoutProps
             <Database className="w-3.5 h-3.5 text-primary shrink-0" />
             <div className="truncate">
               <p className="font-bold text-slate-700 leading-tight">Base Local</p>
-              <p className="text-[10px]">mercado.db (Offline)</p>
+              <p className="text-[10px]">finpdv.db (Offline)</p>
             </div>
           </div>
         </aside>

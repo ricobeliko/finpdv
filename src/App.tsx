@@ -8,6 +8,9 @@ import { CustomersPage } from './modules/customers/CustomersPage';
 import { ReportsPage } from './modules/reports/ReportsPage';
 import { UsersPage } from './modules/users/UsersPage';
 import { SettingsPage } from './modules/settings/SettingsPage';
+import { MaintenancePage } from './modules/maintenance/MaintenancePage';
+import { InitialSetupWizardModal } from './modules/onboarding/InitialSetupWizardModal';
+import { useFinPdvStore } from './core/finpdv/finpdvStore';
 import { useProductStore } from './modules/products/productStore';
 import { useCashStore } from './modules/cash/cashStore';
 import { useUserStore } from './modules/users/userStore';
@@ -23,7 +26,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AutoUpdateNotification } from './shared/components/AutoUpdateNotification';
 
 // Módulos restritos a administradores/gerentes
-const ADMIN_ONLY_MODULES: ModuleType[] = ['SETTINGS', 'USERS', 'REPORTS', 'PURCHASES', 'PRODUCTS'];
+const ADMIN_ONLY_MODULES: ModuleType[] = ['SETTINGS', 'USERS', 'REPORTS', 'PURCHASES', 'PRODUCTS', 'MAINTENANCE'];
 
 export default function App() {
   const [currentModule, setCurrentModule] = useState<ModuleType>('POS');
@@ -31,6 +34,7 @@ export default function App() {
   const { currentSession, initCash, closeSession } = useCashStore();
   const { currentUser, switchUser } = useUserStore();
   const { loadFromDb: loadCustomers } = useCustomerStore();
+  const { isConfigured, loadFinPdvData } = useFinPdvStore();
 
   // Estados dos Modais de Troca
   const [showDecisionModal, setShowDecisionModal] = useState(false);
@@ -39,6 +43,7 @@ export default function App() {
   const [closingSummary, setClosingSummary] = useState<CashClosingSummary | null>(null);
 
   useEffect(() => {
+    loadFinPdvData();
     loadFromDb();
     initCash();
     loadCustomers();
@@ -140,7 +145,11 @@ export default function App() {
         {currentModule === 'REPORTS' && <ReportsPage />}
         {currentModule === 'USERS' && <UsersPage />}
         {currentModule === 'SETTINGS' && <SettingsPage />}
+        {currentModule === 'MAINTENANCE' && <MaintenancePage />}
       </AppLayout>
+
+      {/* MODAL DO ASSISTENTE DE PRIMEIRO USO DO FINPDV */}
+      {!isConfigured && <InitialSetupWizardModal />}
 
       {/* MODAL 1: TRAVA DE SEGURANÇA (PAUSAR VS ENCERRAR) */}
       <SwitchUserDecisionModal

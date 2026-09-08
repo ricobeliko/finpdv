@@ -5,6 +5,13 @@ import { getUserByUsernameDb, getUserByIdDb, updateUserLastLoginDb, insertAuditL
 // Sessão em memória do operador atual
 let currentSessionUser: FinPdvUser | null = null;
 
+// Controle de Rate Limiting para prevenir força bruta (em memória)
+interface FailedAttemptInfo {
+  count: number;
+  blockedUntil: number;
+}
+const failedLoginAttempts = new Map<string, FailedAttemptInfo>();
+
 export const authService = {
   getCurrentUser(): FinPdvUser | null {
     return currentSessionUser;
@@ -31,19 +38,28 @@ export const authService = {
     if (!plain || plain.trim().length < 4) {
       throw new Error('A credencial deve possuir pelo menos 4 caracteres.');
     }
-    return await invoke<string>('hash_credential', { password: plain });
+    return await invoke<string>('hash_credential', { credential: plain });
   },
 
   async verifyCredential(plain: string, hash: string): Promise<boolean> {
     if (!plain || !hash) return false;
     return await invoke<boolean>('verify_credential', {
-      password: plain,
-      passwordHash: hash
+      credential: plain,
+      hash: hash
     });
   },
 
   async login(username: string, credentialPlain: string): Promise<FinPdvUser> {
     const trimmedUsername = username.trim().toLowerCase();
+
+    // 1. Verificar Rate Limiting
+    const attemptInfo = failedLoginAttempts.get(trimmedUsername);
+    const now = Date.now();
+    if (attemptInfo && attemptInfo.blockedUntil > now) {
+      const waitSec = Math.ceil((attemptInfo.blockedUntil - now) / 1000);
+      throw new Error(`Muitas tentativas incorretas. Aguarde ${waitSec}s antes de tentar novamente.`);
+    }
+
     const user = await getUserByUsernameDb(trimmedUsername);
 
     if (!user) {
@@ -69,18 +85,31 @@ export const authService = {
       throw new Error('Usuário inativo. Contate o administrador.');
     }
 
-    const isValid = await this.verifyCredential(credentialPlain, user.passwordHash);
-    if (!isValid) {
+    // 2. Validação por Senha ou por PIN (Argon2id)
+    const isPasswordValid = await this.verifyCredential(credentialPlain, user.passwordHash);
+    const isPinValid = user.pinHash ? await this.verifyCredential(credentialPlain, user.pinHash) : false;
+
+    if (!isPasswordValid && !isPinValid) {
+      const currentFailures = (attemptInfo?.count || 0) + 1;
+      let blockedUntil = 0;
+      if (currentFailures >= 5) {
+        blockedUntil = now + 30_000; // Bloqueio por 30 segundos após 5 falhas
+      }
+      failedLoginAttempts.set(trimmedUsername, { count: currentFailures, blockedUntil });
+
       await insertAuditLogDb({
         userId: user.id,
         role: user.role,
         action: 'auth.login_failed',
         entity: 'user',
         entityId: user.id,
-        details: JSON.stringify({ reason: 'Senha incorreta', username: trimmedUsername })
+        details: JSON.stringify({ reason: 'Credencial incorreta', username: trimmedUsername, failures: currentFailures })
       });
       throw new Error('Credenciais inválidas.');
     }
+
+    // Sucesso: limpa falhas acumuladas
+    failedLoginAttempts.delete(trimmedUsername);
 
     // Login com sucesso
     await updateUserLastLoginDb(user.id);
@@ -158,5 +187,60 @@ export const authService = {
     });
 
     return newUser;
+  },
+
+  async updateUser(userId: string, data: {
+    fullName?: string;
+    role?: RoleType;
+    isActive?: boolean;
+    newPasswordPlain?: string;
+    newPinPlain?: string;
+  }): Promise<void> {
+    this.checkPermissionOrThrow('users.manage', 'Editar usuário');
+    const existing = await getUserByIdDb(userId);
+    if (!existing) {
+      throw new Error('Usuário não encontrado.');
+    }
+
+    let passwordHash = existing.passwordHash;
+    if (data.newPasswordPlain && data.newPasswordPlain.trim()) {
+      passwordHash = await this.hashPassword(data.newPasswordPlain.trim());
+    }
+
+    let pinHash = existing.pinHash;
+    if (data.newPinPlain !== undefined) {
+      if (data.newPinPlain.trim()) {
+        pinHash = await this.hashPassword(data.newPinPlain.trim());
+      } else {
+        pinHash = null;
+      }
+    }
+
+    const updatedUser: FinPdvUser = {
+      ...existing,
+      fullName: data.fullName !== undefined ? data.fullName.trim() : existing.fullName,
+      name: data.fullName !== undefined ? data.fullName.trim() : existing.name,
+      role: data.role || existing.role,
+      isActive: data.isActive !== undefined ? data.isActive : existing.isActive,
+      passwordHash,
+      pinHash,
+      updatedAt: new Date().toISOString()
+    };
+
+    await createUserDb(updatedUser);
+
+    await insertAuditLogDb({
+      userId: currentSessionUser?.id || 'ANONYMOUS',
+      role: currentSessionUser?.role || 'CLIENT_ADMIN',
+      action: 'user.updated',
+      entity: 'user',
+      entityId: updatedUser.id,
+      details: JSON.stringify({
+        username: updatedUser.username,
+        role: updatedUser.role,
+        isActive: updatedUser.isActive,
+        passwordChanged: Boolean(data.newPasswordPlain)
+      })
+    });
   }
 };

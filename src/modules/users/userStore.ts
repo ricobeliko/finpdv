@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { User, AuditLog, RoleId } from './types';
+import { getAllUsersDb } from '../../core/database/finpdvDb';
+import { authService } from '../../core/auth/authService';
+import { RoleType } from '../../core/finpdv/types';
 
 export { type RoleId } from './types';
 
@@ -15,7 +18,7 @@ export const ROLE_DEFINITIONS: Record<RoleId, RoleDefinition> = {
     id: 'ADMIN',
     name: 'Administrador Geral',
     description: 'Acesso irrestrito a todos os módulos, configurações e relatórios.',
-    allowedModules: ['POS', 'PRODUCTS', 'CASH', 'PURCHASES', 'CUSTOMERS', 'REPORTS', 'USERS', 'SETTINGS']
+    allowedModules: ['POS', 'PRODUCTS', 'CASH', 'PURCHASES', 'CUSTOMERS', 'REPORTS', 'USERS', 'SETTINGS', 'MAINTENANCE']
   },
   MANAGER: {
     id: 'MANAGER',
@@ -37,148 +40,122 @@ export const ROLE_DEFINITIONS: Record<RoleId, RoleDefinition> = {
   }
 };
 
-export type AppUser = User;
+function mapFinPdvRoleToRoleId(role: RoleType): RoleId {
+  switch (role) {
+    case 'CLIENT_ADMIN':
+    case 'FINPDV_SUPPORT':
+      return 'ADMIN';
+    case 'MANAGER':
+      return 'MANAGER';
+    case 'SUPERVISOR':
+      return 'MANAGER';
+    case 'OPERATOR':
+    default:
+      return 'CASHIER';
+  }
+}
+
+function mapRoleIdToFinPdvRole(roleId: RoleId): RoleType {
+  switch (roleId) {
+    case 'ADMIN':
+      return 'CLIENT_ADMIN';
+    case 'MANAGER':
+      return 'MANAGER';
+    case 'STOCKIST':
+      return 'MANAGER';
+    case 'CASHIER':
+    default:
+      return 'OPERATOR';
+  }
+}
 
 interface UserState {
   users: User[];
   currentUser: User | null;
   auditLogs: AuditLog[];
+  loadUsersFromDb: () => Promise<void>;
   setCurrentUser: (user: User | null) => void;
   switchUser: (userId: string) => void;
-  toggleUserStatus: (id: string) => void;
-  authenticatePin: (pin: string) => User | null;
-  addUser: (userData: any) => void;
-  updateUser: (idOrUser: any, possibleData?: any) => void;
+  toggleUserStatus: (id: string) => Promise<void>;
+  addUser: (userData: any) => Promise<void>;
+  updateUser: (idOrUser: any, possibleData?: any) => Promise<void>;
   deleteUser: (id: string) => void;
 }
 
-export const DEFAULT_USERS: User[] = [
-  {
-    id: 'usr-admin',
-    name: 'Administrador',
-    username: 'admin',
-    pin: '',
-    roleId: 'ADMIN',
-    roleName: 'Administrador Geral',
-    isActive: true,
-    createdAt: new Date().toLocaleDateString('pt-BR'),
-    lastLoginAt: 'Agora'
-  }
-];
-
 export const useUserStore = create<UserState>((set, get) => ({
-  users: DEFAULT_USERS,
-  currentUser: DEFAULT_USERS[0],
-  auditLogs: [
-    {
-      id: `log-init`,
-      userId: 'usr-admin',
-      userName: 'Administrador',
-      action: 'SYSTEM_START',
-      entityName: 'AUTH',
-      entityId: 'usr-admin',
-      details: 'Sistema inicializado em modo Administrador',
-      createdAt: new Date().toLocaleString('pt-BR')
+  users: [],
+  currentUser: null,
+  auditLogs: [],
+
+  loadUsersFromDb: async () => {
+    try {
+      const dbUsers = await getAllUsersDb();
+      const mapped: User[] = dbUsers.map(u => {
+        const roleId = mapFinPdvRoleToRoleId(u.role);
+        const roleDef = ROLE_DEFINITIONS[roleId];
+        return {
+          id: u.id,
+          name: u.fullName || u.name || u.username,
+          username: u.username,
+          pin: '', // Jamais expõe hash ou credencial
+          roleId,
+          roleName: roleDef.name,
+          isActive: u.isActive,
+          createdAt: new Date(u.createdAt).toLocaleDateString('pt-BR'),
+          lastLoginAt: 'Registrado'
+        };
+      });
+
+      set({ 
+        users: mapped,
+        currentUser: get().currentUser || mapped[0] || null
+      });
+    } catch (err) {
+      console.warn('Erro ao carregar operadores do banco:', err);
     }
-  ],
+  },
 
   setCurrentUser: (user) => set({ currentUser: user }),
 
   switchUser: (userId: string) => {
     const user = get().users.find(u => u.id === userId);
     if (user && user.isActive) {
-      const now = new Date().toLocaleTimeString('pt-BR');
-      const updated = { ...user, lastLoginAt: now };
-      set(state => ({
-        currentUser: updated,
-        users: state.users.map(u => u.id === userId ? updated : u),
-        auditLogs: [
-          {
-            id: `log-${Date.now()}`,
-            userId: user.id,
-            userName: user.name,
-            action: 'LOGIN',
-            entityName: 'AUTH',
-            entityId: user.id,
-            details: `Operador ${user.name} assumiu a sessão`,
-            createdAt: new Date().toLocaleString('pt-BR')
-          },
-          ...state.auditLogs
-        ]
-      }));
+      set({ currentUser: user });
     }
   },
 
-  toggleUserStatus: (id: string) => {
-    set(state => ({
-      users: state.users.map(u => u.id === id ? { ...u, isActive: !u.isActive } : u)
-    }));
+  toggleUserStatus: async (id: string) => {
+    const user = get().users.find(u => u.id === id);
+    if (!user) return;
+    const newStatus = !user.isActive;
+    await authService.updateUser(id, { isActive: newStatus });
+    await get().loadUsersFromDb();
   },
 
-  authenticatePin: (pin: string) => {
-    const found = get().users.find(u => u.pin === pin);
-    if (found) {
-      set({ currentUser: found });
-      return found;
-    }
-    return null;
+  addUser: async (data: any) => {
+    const mappedRole = mapRoleIdToFinPdvRole(data.roleId as RoleId);
+    await authService.createUser({
+      username: data.username,
+      fullName: data.name,
+      role: mappedRole,
+      passwordPlain: data.password || 'Mudar@123',
+      pinPlain: data.pin || undefined
+    });
+    await get().loadUsersFromDb();
   },
 
-  addUser: (data: any) => {
-    const roleDef = ROLE_DEFINITIONS[data.roleId as RoleId] || ROLE_DEFINITIONS.CASHIER;
-    const newUser: User = {
-      id: data.id || `usr-${Date.now()}`,
-      name: data.name,
-      username: data.username || data.name.toLowerCase().replace(/\s+/g, '.'),
-      pin: data.pin || '',
-      roleId: data.roleId || 'CASHIER',
-      roleName: roleDef.name,
-      isActive: data.isActive ?? true,
-      createdAt: new Date().toLocaleDateString('pt-BR')
-    };
+  updateUser: async (idOrUser: any, possibleData?: any) => {
+    let id = typeof idOrUser === 'string' ? idOrUser : idOrUser.id;
+    let data = typeof idOrUser === 'string' ? (possibleData || {}) : idOrUser;
 
-    set(state => ({
-      users: [...state.users, newUser],
-      auditLogs: [
-        {
-          id: `log-${Date.now()}`,
-          userId: state.currentUser?.id || 'usr-admin',
-          userName: state.currentUser?.name || 'Administrador',
-          action: 'CREATE_USER',
-          entityName: 'USERS',
-          entityId: newUser.id,
-          details: `Novo usuário ${newUser.name} (@${newUser.username}) criado com perfil ${newUser.roleName}`,
-          createdAt: new Date().toLocaleString('pt-BR')
-        },
-        ...state.auditLogs
-      ]
-    }));
-  },
-
-  updateUser: (idOrUser: any, possibleData?: any) => {
-    let id = '';
-    let data: any = {};
-
-    if (typeof idOrUser === 'string') {
-      id = idOrUser;
-      data = possibleData || {};
-    } else {
-      id = idOrUser.id;
-      data = idOrUser;
-    }
-
-    set(state => ({
-      users: state.users.map(u => {
-        if (u.id !== id) return u;
-        const roleDef = data.roleId ? (ROLE_DEFINITIONS[data.roleId as RoleId] || ROLE_DEFINITIONS.CASHIER) : undefined;
-        return {
-          ...u,
-          ...data,
-          roleName: roleDef ? roleDef.name : u.roleName
-        };
-      }),
-      currentUser: state.currentUser?.id === id ? { ...state.currentUser, ...data } : state.currentUser
-    }));
+    const mappedRole = data.roleId ? mapRoleIdToFinPdvRole(data.roleId as RoleId) : undefined;
+    await authService.updateUser(id, {
+      fullName: data.name,
+      role: mappedRole,
+      isActive: data.isActive,
+      newPasswordPlain: data.password || undefined
+    });
+    await get().loadUsersFromDb();
   },
 
   deleteUser: (id: string) => set((state) => ({

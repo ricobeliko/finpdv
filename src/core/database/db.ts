@@ -7,6 +7,7 @@ import { Customer } from '../../modules/customers/types';
 import { Supplier, Purchase, PurchaseItem } from '../../modules/purchases/types';
 import { SalePayment } from '../../modules/pos/types';
 import { initFinPdvDb } from './finpdvDb';
+import { authService } from '../auth/authService';
 
 let dbInstance: Database | null = null;
 let tablesInitialized = false;
@@ -300,6 +301,10 @@ export async function openCashSessionDb(session: CashSession, initialMov: CashMo
 }
 
 export async function insertCashMovementDb(mov: CashMovement) {
+  if (authService.getCurrentUser()) {
+    const requiredPerm = mov.type === 'WITHDRAW' ? 'cash.withdraw' : 'cash.supply';
+    authService.checkPermissionOrThrow(requiredPerm, 'Movimentação de caixa');
+  }
   const db = await getDb();
   await db.execute(
     `INSERT INTO cash_movements (id, session_id, user_id, type, amount_cents, reason, timestamp) 
@@ -593,6 +598,9 @@ export interface CancelSaleOptions {
 }
 
 export async function cancelSaleDb(optionsOrSaleId: string | CancelSaleOptions): Promise<void> {
+  if (authService.getCurrentUser()) {
+    authService.checkPermissionOrThrow('sale.cancel', 'Cancelar venda');
+  }
   const options: CancelSaleOptions = typeof optionsOrSaleId === 'string'
     ? { saleId: optionsOrSaleId }
     : optionsOrSaleId;
@@ -679,6 +687,11 @@ export async function loadProductsFromDb(): Promise<Product[]> {
 export const getProductsDb = loadProductsFromDb;
 
 export async function saveProductToDb(product: Product): Promise<void> {
+  if (authService.getCurrentUser()) {
+    if (!authService.hasPermission('product.create') && !authService.hasPermission('product.edit')) {
+      authService.checkPermissionOrThrow('product.edit', 'Salvar/editar produto');
+    }
+  }
   const db = await getDb();
 
   // 1. Salva / Atualiza o produto principal
@@ -749,16 +762,25 @@ export async function saveProductToDb(product: Product): Promise<void> {
 export const saveProductDb = saveProductToDb;
 
 export async function deleteProductDb(id: string): Promise<void> {
+  if (authService.getCurrentUser()) {
+    authService.checkPermissionOrThrow('product.delete', 'Excluir produto');
+  }
   const db = await getDb();
   await db.execute('DELETE FROM products WHERE id = $1', [id]);
 }
 
 export async function updateStockDb(productId: string, newStock: number): Promise<void> {
+  if (authService.getCurrentUser()) {
+    authService.checkPermissionOrThrow('stock.edit', 'Ajustar saldo de estoque');
+  }
   const db = await getDb();
   await db.execute(`UPDATE products SET current_stock = $1 WHERE id = $2`, [newStock, productId]);
 }
 
 export async function insertMovementDb(movement: InventoryMovement): Promise<void> {
+  if (authService.getCurrentUser()) {
+    authService.checkPermissionOrThrow('stock.edit', 'Registrar movimentação de estoque');
+  }
   const db = await getDb();
   await db.execute(
     `INSERT INTO inventory_movements 
@@ -1258,6 +1280,9 @@ export async function exportFullDatabaseDumpDb(): Promise<FullDatabaseDump> {
 
 
 export async function restoreFullDatabaseDumpDb(dump: FullDatabaseDump): Promise<{ success: boolean; message: string }> {
+  if (authService.getCurrentUser()) {
+    authService.checkPermissionOrThrow('backup.restore', 'Restaurar backup');
+  }
   if (!dump || !dump.data) {
     throw new Error('Arquivo de backup inválido ou corrompido.');
   }

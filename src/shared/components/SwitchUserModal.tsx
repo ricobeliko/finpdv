@@ -112,8 +112,42 @@ interface UserSelectModalProps {
 
 export function UserSelectModal({ isOpen, onSelectUser, onClose }: UserSelectModalProps) {
   const { users, currentUser } = useUserStore();
+  const [selectedUser, setSelectedUser] = React.useState<any | null>(null);
+  const [credential, setCredential] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setSelectedUser(null);
+      setCredential('');
+      setError(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const handleAuthenticateAndSwitch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser) return;
+    if (!credential.trim()) {
+      setError('Informe a senha ou PIN do operador.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      const { authService } = await import('../../core/auth/authService');
+      await authService.login(selectedUser.username, credential.trim());
+      onSelectUser(selectedUser.id);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Credenciais inválidas.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4">
@@ -122,8 +156,12 @@ export function UserSelectModal({ isOpen, onSelectUser, onClose }: UserSelectMod
           <div className="flex items-center space-x-2">
             <User className="w-5 h-5 text-highlight" />
             <div>
-              <h3 className="font-bold text-base leading-tight">Selecionar Operador</h3>
-              <p className="text-xs text-white/70">Escolha o usuário para iniciar a sessão</p>
+              <h3 className="font-bold text-base leading-tight">
+                {selectedUser ? `Confirmar Acesso: ${selectedUser.name}` : 'Selecionar Operador'}
+              </h3>
+              <p className="text-xs text-white/70">
+                {selectedUser ? 'Digite a senha ou PIN para assumir a sessão' : 'Escolha o operador para iniciar a sessão'}
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="text-white/80 hover:text-white p-1">
@@ -131,37 +169,81 @@ export function UserSelectModal({ isOpen, onSelectUser, onClose }: UserSelectMod
           </button>
         </div>
 
-        <div className="p-6 space-y-2 max-h-80 overflow-y-auto">
-          {users.filter((u) => u.isActive).map((u) => {
-            const isCurrent = currentUser?.id === u.id;
-            return (
+        {selectedUser ? (
+          <form onSubmit={handleAuthenticateAndSwitch} className="p-6 space-y-4">
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700">
+                {error}
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-semibold text-textMuted uppercase mb-1">
+                Senha ou PIN de {selectedUser.name}
+              </label>
+              <input
+                type="password"
+                autoFocus
+                required
+                placeholder="Digite a senha ou PIN"
+                value={credential}
+                onChange={(e) => setCredential(e.target.value)}
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div className="flex justify-between items-center pt-2">
               <button
-                key={u.id}
-                onClick={() => onSelectUser(u.id)}
-                className={`w-full p-3 rounded-xl border flex items-center justify-between text-left transition-all ${
-                  isCurrent 
-                    ? 'border-primary bg-emerald-50/60 shadow-sm' 
-                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                }`}
+                type="button"
+                onClick={() => {
+                  setSelectedUser(null);
+                  setCredential('');
+                  setError(null);
+                }}
+                className="text-xs font-bold text-slate-600 hover:text-slate-900"
               >
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <p className="font-bold text-sm text-textMain">{u.name}</p>
-                    {isCurrent && (
-                      <span className="text-[9px] bg-primary text-white font-bold px-1.5 py-0.2 rounded">
-                        ATUAL
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[11px] text-textMuted font-mono">@{u.username}</span>
-                </div>
-                <span className="bg-slate-200 text-slate-800 text-[10px] font-bold px-2 py-0.5 rounded">
-                  {u.roleName}
-                </span>
+                ← Voltar
               </button>
-            );
-          })}
-        </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="bg-primary hover:bg-primary-hover text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-sm disabled:opacity-50"
+              >
+                {loading ? 'Validando...' : 'Autenticar e Entrar'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="p-6 space-y-2 max-h-80 overflow-y-auto">
+            {users.filter((u) => u.isActive).map((u) => {
+              const isCurrent = currentUser?.id === u.id;
+              return (
+                <button
+                  key={u.id}
+                  onClick={() => setSelectedUser(u)}
+                  className={`w-full p-3 rounded-xl border flex items-center justify-between text-left transition-all ${
+                    isCurrent 
+                      ? 'border-primary bg-emerald-50/60 shadow-sm' 
+                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <p className="font-bold text-sm text-textMain">{u.name}</p>
+                      {isCurrent && (
+                        <span className="text-[9px] bg-primary text-white font-bold px-1.5 py-0.2 rounded">
+                          ATUAL
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-textMuted font-mono">@{u.username}</span>
+                  </div>
+                  <span className="bg-slate-200 text-slate-800 text-[10px] font-bold px-2 py-0.5 rounded">
+                    {u.roleName}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

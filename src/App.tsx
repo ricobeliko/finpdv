@@ -48,6 +48,7 @@ export default function App() {
     initCash();
     loadCustomers();
     useSettingsStore.getState().checkMonthlyAutoBackup();
+    useUserStore.getState().loadUsersFromDb();
 
     // Garante que a aplicação inicia em tela cheia (modo quiosque PDV), ocultando a barra de tarefas do Windows
     try {

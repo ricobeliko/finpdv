@@ -6,7 +6,7 @@ import { ROLE_DEFINITIONS } from '../userStore';
 interface UserFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (userData: { name: string; username: string; roleId: RoleId; isActive: boolean }) => void;
+  onSave: (userData: { name: string; username: string; roleId: RoleId; isActive: boolean; password?: string }) => void;
   initialData?: User | null;
 }
 
@@ -35,7 +35,8 @@ export function UserFormModal({ isOpen, onClose, onSave, initialData }: UserForm
       name: name.trim(),
       username: username.trim().toLowerCase(),
       roleId,
-      isActive
+      isActive,
+      password: password.trim() || undefined
     });
   };
 

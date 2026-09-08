@@ -156,6 +156,7 @@ fn print_raw_escpos(printer_name: String, data: Vec<u8>) -> Result<(), String> {
 mod cosmos_lookup;
 mod sale_cancellation;
 mod sale_transaction;
+pub mod security;
 
 // 3. PULSO PARA ABRIR GAVETA DE DINHEIRO (RJ11)
 #[tauri::command]
@@ -213,29 +214,12 @@ pub fn create_pre_migration_backup_in_dir(
 // 4. AUTENTICAÇÃO E RBAC COM ARGON2ID NATIVO
 #[tauri::command]
 fn hash_credential(credential: String) -> Result<String, String> {
-    use argon2::{
-        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
-        Argon2,
-    };
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    argon2
-        .hash_password(credential.as_bytes(), &salt)
-        .map(|hash| hash.to_string())
-        .map_err(|e| format!("Erro ao gerar hash Argon2: {}", e))
+    security::hash_credential_argon2(&credential)
 }
 
 #[tauri::command]
 fn verify_credential(credential: String, hash: String) -> Result<bool, String> {
-    use argon2::{
-        password_hash::{PasswordHash, PasswordVerifier},
-        Argon2,
-    };
-    let parsed_hash = match PasswordHash::new(&hash) {
-        Ok(h) => h,
-        Err(_) => return Ok(false),
-    };
-    Ok(Argon2::default().verify_password(credential.as_bytes(), &parsed_hash).is_ok())
+    Ok(security::verify_credential_argon2(&credential, &hash))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

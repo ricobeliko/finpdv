@@ -400,10 +400,54 @@ pub async fn save_sale_transaction(
         tauri_plugin_sql::DbPool::Sqlite(pool) => {
             let active_sess =
                 crate::security::require_permission(&session_state, pool, "sale.create").await?;
-            sale.user_id = Some(active_sess.user_id);
-            sale.user_name = Some(active_sess.full_name);
+            sale.user_id = Some(active_sess.user_id.clone());
+            sale.user_name = Some(active_sess.full_name.clone());
 
-            execute_sale_transaction(pool, &sale).await
+            execute_sale_transaction(pool, &sale).await?;
+
+            // Auditoria da venda criada
+            let audit_id = format!("aud-sale-{}", sale.id);
+            let details = format!(
+                r#"{{"totalCents":{},"itemsCount":{},"discountCents":{}}}"#,
+                sale.total_cents,
+                sale.items.len(),
+                sale.discount_cents
+            );
+            let _ = sqlx::query(
+                "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                 VALUES (?, ?, ?, ?, 'sale.created', 'sale', ?, ?, datetime('now'))"
+            )
+            .bind(audit_id)
+            .bind(&active_sess.user_id)
+            .bind(&active_sess.username)
+            .bind(&active_sess.role)
+            .bind(&sale.id)
+            .bind(details)
+            .execute(pool)
+            .await;
+
+            // Auditoria de desconto se houver
+            if sale.discount_cents > 0 {
+                let disc_id = format!("aud-disc-{}", sale.id);
+                let disc_details = format!(
+                    r#"{{"discountCents":{},"subtotalCents":{},"totalCents":{}}}"#,
+                    sale.discount_cents, sale.subtotal_cents, sale.total_cents
+                );
+                let _ = sqlx::query(
+                    "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                     VALUES (?, ?, ?, ?, 'discount.authorized', 'sale', ?, ?, datetime('now'))"
+                )
+                .bind(disc_id)
+                .bind(&active_sess.user_id)
+                .bind(&active_sess.username)
+                .bind(&active_sess.role)
+                .bind(&sale.id)
+                .bind(disc_details)
+                .execute(pool)
+                .await;
+            }
+
+            Ok(())
         }
         #[allow(unreachable_patterns)]
         _ => Err("Tipo de banco de dados não suportado (esperado SQLite)".into()),

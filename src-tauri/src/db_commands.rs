@@ -199,6 +199,21 @@ pub async fn db_open_cash_session(
         .await
         .map_err(|e| format!("Erro ao comitar abertura de caixa: {}", e))?;
 
+    let audit_id = format!("aud-cash-open-{}", session.id);
+    let details = format!(r#"{{"initialAmountCents":{}}}"#, session.initial_amount_cents);
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, 'cash.open', 'cash_session', ?, ?, datetime('now'))"
+    )
+    .bind(audit_id)
+    .bind(&user_sess.user_id)
+    .bind(&user_sess.username)
+    .bind(&user_sess.role)
+    .bind(&session.id)
+    .bind(details)
+    .execute(&pool)
+    .await;
+
     Ok(())
 }
 
@@ -238,6 +253,31 @@ pub async fn db_create_cash_movement(
     .await
     .map_err(|e| format!("Erro ao registrar movimento de caixa: {}", e))?;
 
+    let action_name = if movement.r#type == "WITHDRAW" || movement.r#type == "WITHDRAWAL" {
+        "cash.withdraw"
+    } else {
+        "cash.supply"
+    };
+    let audit_id = format!("aud-cash-mov-{}", movement.id);
+    let details = format!(
+        r#"{{"amountCents":{},"reason":"{}"}}"#,
+        movement.amount_cents,
+        movement.reason.replace('"', "\\\"")
+    );
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, ?, 'cash_movement', ?, ?, datetime('now'))"
+    )
+    .bind(audit_id)
+    .bind(&user_sess.user_id)
+    .bind(&user_sess.username)
+    .bind(&user_sess.role)
+    .bind(action_name)
+    .bind(&movement.id)
+    .bind(details)
+    .execute(&pool)
+    .await;
+
     Ok(())
 }
 
@@ -261,7 +301,7 @@ pub async fn db_close_cash_session(
     summary: CashClosingPayload,
 ) -> Result<(), String> {
     let pool = get_pool(&db_instances)?;
-    require_permission(&session_state, &pool, "cash.close").await?;
+    let user_sess = require_permission(&session_state, &pool, "cash.close").await?;
 
     sqlx::query(
         "UPDATE cash_sessions 
@@ -280,6 +320,24 @@ pub async fn db_close_cash_session(
     .execute(&pool)
     .await
     .map_err(|e| format!("Erro ao fechar sessão de caixa: {}", e))?;
+
+    let audit_id = format!("aud-cash-close-{}", summary.session_id);
+    let details = format!(
+        r#"{{"countedCents":{},"differenceCents":{},"salesCashCents":{}}}"#,
+        summary.counted_cents, summary.difference_cents, summary.sales_cash_cents
+    );
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, 'cash.close', 'cash_session', ?, ?, datetime('now'))"
+    )
+    .bind(audit_id)
+    .bind(&user_sess.user_id)
+    .bind(&user_sess.username)
+    .bind(&user_sess.role)
+    .bind(&summary.session_id)
+    .bind(details)
+    .execute(&pool)
+    .await;
 
     Ok(())
 }
@@ -323,7 +381,14 @@ pub async fn db_save_product(
     product: ProductPayload,
 ) -> Result<(), String> {
     let pool = get_pool(&db_instances)?;
-    require_permission(&session_state, &pool, "product.edit").await?;
+    let user_sess = require_permission(&session_state, &pool, "product.edit").await?;
+
+    // Verifica se o produto já existia antes do commit
+    let existing_prod: Option<(String,)> = sqlx::query_as("SELECT id FROM products WHERE id = ?")
+        .bind(&product.id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
 
     let mut tx = pool
         .begin()
@@ -414,6 +479,28 @@ pub async fn db_save_product(
         .await
         .map_err(|e| format!("Erro ao comitar produto: {}", e))?;
 
+    let action_name = if existing_prod.is_some() { "product.updated" } else { "product.created" };
+    let audit_id = format!("aud-prod-{}", product.id);
+    let details = format!(
+        r#"{{"name":"{}","retailPriceCents":{},"internalCode":"{}"}}"#,
+        product.name.replace('"', "\\\""),
+        product.retail_price_cents,
+        product.internal_code
+    );
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, ?, 'product', ?, ?, datetime('now'))"
+    )
+    .bind(audit_id)
+    .bind(&user_sess.user_id)
+    .bind(&user_sess.username)
+    .bind(&user_sess.role)
+    .bind(action_name)
+    .bind(&product.id)
+    .bind(details)
+    .execute(&pool)
+    .await;
+
     Ok(())
 }
 
@@ -424,13 +511,26 @@ pub async fn db_delete_product(
     id: String,
 ) -> Result<(), String> {
     let pool = get_pool(&db_instances)?;
-    require_permission(&session_state, &pool, "product.delete").await?;
+    let user_sess = require_permission(&session_state, &pool, "product.delete").await?;
 
     sqlx::query("DELETE FROM products WHERE id = ?")
-        .bind(id)
+        .bind(&id)
         .execute(&pool)
         .await
         .map_err(|e| format!("Erro ao excluir produto: {}", e))?;
+
+    let audit_id = format!("aud-del-prod-{}", id);
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, 'product.deleted', 'product', ?, NULL, datetime('now'))"
+    )
+    .bind(audit_id)
+    .bind(&user_sess.user_id)
+    .bind(&user_sess.username)
+    .bind(&user_sess.role)
+    .bind(&id)
+    .execute(&pool)
+    .await;
 
     Ok(())
 }
@@ -478,7 +578,7 @@ pub async fn db_insert_inventory_movement(
     movement: InventoryMovementPayload,
 ) -> Result<(), String> {
     let pool = get_pool(&db_instances)?;
-    require_permission(&session_state, &pool, "stock.edit").await?;
+    let user_sess = require_permission(&session_state, &pool, "stock.edit").await?;
 
     sqlx::query(
         "INSERT INTO inventory_movements (
@@ -500,6 +600,24 @@ pub async fn db_insert_inventory_movement(
     .execute(&pool)
     .await
     .map_err(|e| format!("Erro ao registrar movimentação de estoque: {}", e))?;
+
+    let audit_id = format!("aud-stock-{}", movement.id);
+    let details = format!(
+        r#"{{"productId":"{}","type":"{}","quantity":{},"newStock":{}}}"#,
+        movement.product_id, movement.r#type, movement.quantity, movement.new_stock
+    );
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, ?, ?, ?, 'stock.adjusted', 'product', ?, ?, datetime('now'))"
+    )
+    .bind(audit_id)
+    .bind(&user_sess.user_id)
+    .bind(&user_sess.username)
+    .bind(&user_sess.role)
+    .bind(&movement.product_id)
+    .bind(details)
+    .execute(&pool)
+    .await;
 
     Ok(())
 }
@@ -858,6 +976,22 @@ pub async fn db_save_business_profile(
     .execute(&pool)
     .await
     .map_err(|e| format!("Erro ao salvar perfil da empresa: {}", e))?;
+
+    let audit_id = format!("aud-settings-{}", profile.id);
+    let details = format!(
+        r#"{{"tradeName":"{}","cnpj":"{}"}}"#,
+        profile.trade_name.replace('"', "\\\""),
+        profile.cnpj.as_deref().unwrap_or_default().replace('"', "\\\"")
+    );
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+         VALUES (?, 'SYSTEM', 'Admin', 'CLIENT_ADMIN', 'settings.changed', 'business_profile', ?, ?, datetime('now'))"
+    )
+    .bind(audit_id)
+    .bind(&profile.id)
+    .bind(details)
+    .execute(&pool)
+    .await;
 
     Ok(())
 }

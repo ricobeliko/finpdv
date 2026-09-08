@@ -445,10 +445,33 @@ pub async fn cancel_sale_transaction(
         tauri_plugin_sql::DbPool::Sqlite(pool) => {
             let active_sess =
                 crate::security::require_permission(&session_state, pool, "sale.cancel").await?;
-            payload.user_id = Some(active_sess.user_id);
-            payload.user_name = Some(active_sess.full_name);
+            payload.user_id = Some(active_sess.user_id.clone());
+            payload.user_name = Some(active_sess.full_name.clone());
 
-            execute_cancel_sale_transaction(pool, &payload).await
+            execute_cancel_sale_transaction(pool, &payload).await?;
+
+            // Auditoria do cancelamento da venda
+            let audit_id = format!("aud-cancel-{}", payload.sale_id);
+            let reason_str = payload
+                .reason
+                .as_deref()
+                .unwrap_or("Cancelamento de venda pelo operador")
+                .replace('"', "\\\"");
+            let details = format!(r#"{{"reason":"{}"}}"#, reason_str);
+            let _ = sqlx::query(
+                "INSERT INTO audit_logs (id, user_id, user_name, role, action, entity, entity_id, details, created_at)
+                 VALUES (?, ?, ?, ?, 'sale.cancelled', 'sale', ?, ?, datetime('now'))"
+            )
+            .bind(audit_id)
+            .bind(&active_sess.user_id)
+            .bind(&active_sess.username)
+            .bind(&active_sess.role)
+            .bind(&payload.sale_id)
+            .bind(details)
+            .execute(pool)
+            .await;
+
+            Ok(())
         }
         #[allow(unreachable_patterns)]
         _ => Err("Tipo de banco de dados não suportado (esperado SQLite)".into()),

@@ -232,5 +232,19 @@ export const authService = {
         passwordChanged: Boolean(data.newPasswordPlain)
       })
     });
+
+    if (data.isActive === false && existing.isActive === true) {
+      await insertAuditLogDb({
+        userId: currentSessionUser?.id || 'ANONYMOUS',
+        role: currentSessionUser?.role || 'CLIENT_ADMIN',
+        action: 'user.disabled',
+        entity: 'user',
+        entityId: updatedUser.id,
+        details: JSON.stringify({
+          username: updatedUser.username,
+          disabledAt: updatedUser.updatedAt
+        })
+      });
+    }
   }
 };
